@@ -426,6 +426,7 @@ float   advHoldHead      = 0.0f; // góc giữ thẳng trong turnStage == 1
 float   forcedChainExitS = -1.0f; // >=0: neo lại totalDistMM khi kết thúc bước cuối của chuỗi
 uint8_t turnStage     = 0;     // 0: không rẽ | 1: tiến tới tâm nút | 2: xoay tại chỗ | 25: xoay chậm tìm line
 float   turnStageT    = 0.0f;
+float   turnBrakeT    = 0.0f;  // thời gian phanh chủ động tắt đà sau mỗi lượt xoay (45ms)
 float   turnStartMM   = 0.0f;
 float   turnStartHead = 0.0f;
 float   straightLockUntilMM = -1.0f;
@@ -724,6 +725,7 @@ void stopRobot() {
   forcedUseAbs        = false;
   forcedChainExitS    = -1.0f;
   turnStage           = 0;
+  turnBrakeT          = 0.0f;
   reverseUntilMs      = 0;
   stallStartMs        = 0;
   finishBraking       = false;
@@ -989,6 +991,7 @@ void startRun() {
   runTraceLen   = 0;
   turnStage = 0;
   turnStageT = 0.0f;
+  turnBrakeT = 0.0f;
   turnStartMM = 0.0f;
   turnStartHead = 0.0f;
   straightLockUntilMM = -1.0f;
@@ -1026,7 +1029,7 @@ void startRun() {
 
 // ================= 14. SERIAL CLI NON-BLOCKING =================
 void printStatus() {
-  Serial.println("=== STATUS (V0.4) ===");
+  Serial.println("=== STATUS (V0.5) ===");
   Serial.printf("Mode=%d (%s) | Route=%c | MapScale=%.2f | Running=%d | Enc=%d\n",
                 currentMode + 1, profiles[currentMode].name,
                 USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', MAP_SCALE, isRunning, ENABLE_ENCODERS);
@@ -1255,7 +1258,7 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENC_R_B), isrEncR, CHANGE);
   }
 
-  Serial.println("\n=== HRC 2026 ESP32 READY V0.4 (5kHz PWM, NVS) ===");
+  Serial.println("\n=== HRC 2026 ESP32 READY V0.5 (5kHz PWM, NVS) ===");
   loadConfigFromNVS();
   applyProfile(currentMode, false);
 }
@@ -1414,6 +1417,16 @@ void loop() {
     setMotorRaw(stL, stR);
     maybePushLog(millis() - runStartMs, totalDistMM, sr, vRefMMS, velL_filt, velR_filt,
                  headingDeg, stL, stR, (uint8_t)zType, jncIdx, invertedMode, turnStage, finishBraking);
+    return;
+  }
+
+  // 4c. Phanh chủ động tắt đà sau mỗi lượt xoay (45ms) trước khi sang bước nối chuỗi / bám line
+  if (turnBrakeT > 0.0f) {
+    turnBrakeT -= dt;
+    setMotorRaw(0, 0);
+    lastPwmL = 0; lastPwmR = 0;
+    maybePushLog(millis() - runStartMs, totalDistMM, sr, 0.0f, velL_filt, velR_filt,
+                 headingDeg, 0, 0, (uint8_t)zType, jncIdx, invertedMode, turnStage, finishBraking);
     return;
   }
 
@@ -1578,7 +1591,7 @@ void loop() {
       }
     }
     if (turnStage == 25 && !done) {
-      bool caught = sr.hasLine && sr.activeCount >= 1 && sr.activeCount <= 3 && fabsf(sr.error) < 1.2f;
+      bool caught = sr.hasLine && sr.activeCount >= 1 && sr.activeCount <= 3 && fabsf(sr.error) < 2.2f;
       if (caught || turnStageT > 1.05f) {
         done = true;
       } else {
@@ -1601,6 +1614,7 @@ void loop() {
       forcedUseAbs  = false;
       turnStage     = 0;
       turnStageT    = 0.0f;
+      turnBrakeT    = 0.045f;       // phanh chủ động 45ms để tắt hẳn đà xoay
       postTurnT     = 0.0f;
       // Nếu thoát rẽ mà chưa thấy line, giữ dấu lệch mạnh để bộ mất line KHÔNG hiểu nhầm là đoạn đứt thẳng
       lastError    = sr.hasLine ? sr.error : ((float)prevDir * 3.5f);
@@ -1614,7 +1628,6 @@ void loop() {
       straightMM   = 0.0f;
       vCmdPrev     = 0.0f;
       resetWheelPI();
-      // Phanh chủ động 1 nhịp (5ms) để hãm quán tính xoay & tránh lọt sang nhánh mất line giữa chuỗi Tổ ong/H
       setMotorRaw(0, 0);
       lastPwmL = 0; lastPwmR = 0;
       maybePushLog(millis() - runStartMs, totalDistMM, sr, vRefMMS, velL_filt, velR_filt,
