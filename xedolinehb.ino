@@ -1,9 +1,9 @@
 /*
  * ============================================================================
  *  ROBOT DÒ LINE TỐC ĐỘ CAO - HUST ROBOTICS COMPETITION 2026 (SA BÀN CHUẨN)
- *  BẢN V0: MÁY TRẠNG THÁI RẼ, CHỐNG MẤT LINE CHO XE DÀI (SENSOR_OFFSET_MM=170),
- *          EDGE BOOST, CLI TINH CHỈNH, ĐÃ SỬA LỖI PHANH ĐÍCH / SPEED PLANNER /
- *          CHAIN GUARD / IRAM ENCODER ISR / QUÉT NGƯỢC TÌM LINE
+ *  BẢN V0: HỖ TRỢ MAP_SCALE (0.85 TẬP / 1.00 THI), XE DÀI SENSOR_OFFSET_MM=170,
+ *          XOAY GÓC TUYỆT ĐỐI ENCODER CHO TỔ ONG & VÒM CHỮ H, PHANH ĐÍCH CHUẨN,
+ *          IRAM ENCODER ISR, CLI TINH CHỈNH NHANH (scale / sensx / coast / sstop)
  *  Encoder: ENABLE_ENCODERS = true (cần nối đủ 2 encoder)
  * ============================================================================
  */
@@ -47,7 +47,9 @@ bool ENABLE_E18_SENSOR     = false;
 const bool ACTIVE_ON_BLACK = false;  // false: line đen ADC THẤP, nền trắng CAO
 
 // Thông số cơ khí & vật lý
+float MAP_SCALE        = 0.85f;  // 0.85 cho sa bàn in 85% | 1.00 cho sa bàn thi đấu chuẩn (lệnh scale=)
 float SENSOR_OFFSET_MM = 170.0f;
+float CHAIN_COAST_MM   = 10.0f;  // trừ quán tính trượt cho các đoạn nối chuỗi Tổ ong / chữ H (lệnh coast=)
 float A_BRAKE_MMSS     = 3800.0f;
 float A_ACCEL_MMSS     = 3500.0f;
 float S_STOP_FINISH_MM = 235.0f;
@@ -229,56 +231,68 @@ const uint16_t PLAN_STEP_MM = 50;
 const uint16_t PLAN_LEN     = 340;
 float vPlanMMS[PLAN_LEN];
 
-// ================= 6. BẢNG NÚT GIAO =================
+// ================= 6. BẢNG NÚT GIAO (TỌA ĐỘ CHUẨN 100%, TỰ SCALE THEO MAP_SCALE) =================
 // dir: +1 = rẽ PHẢI, -1 = rẽ TRÁI (heading giảm khi rẽ phải)
+const uint8_t TF_NONE      = 0x00;
+const uint8_t TF_PURE_ENC  = 0x01; // Xoay thuần encoder (không dùng lineCaught/stage 25) khi cạnh sau < SENSOR_OFFSET_MM
+const uint8_t TF_ABS_START = 0x02; // Lưu mốc hướng tuyệt đối absRefHead khi bắt đầu chuỗi (Tổ ong / vòm chữ H)
+const uint8_t TF_ABS_HEAD  = 0x04; // Xoay về góc tuyệt đối (absRefHead + absDeg) để chống cộng dồn sai số góc
+
 struct TurnEvent {
   int8_t   dir;
   float    deg;
   float    sExpect;
   float    tol;
   ZoneType zone;
-  float    chainAdvMM;
+  float    chainAdvMM; // chiều dài đoạn nối hình học 100% (mm); >0 = tự nối chuỗi sau lượt rẽ trước
+  float    absDeg;     // góc mục tiêu so với absRefHead khi bật TF_ABS_HEAD
+  uint8_t  flags;
 };
 
 const TurnEvent PLAN_A[] = {
-  {+1,  87.5f,  3793.7f,  450.0f, Z_HONEYCOMB,  0.0f},
-  {-1,  60.0f,  3851.5f,   80.0f, Z_HONEYCOMB, 38.0f},
-  {-1,  60.0f,  3966.9f,   80.0f, Z_HONEYCOMB, 82.0f},
-  {+1,  60.0f,  4082.4f,   80.0f, Z_HONEYCOMB, 82.0f},
-  {-1,  60.0f,  4197.9f,   80.0f, Z_HONEYCOMB, 82.0f},
-  {+1,  60.0f,  4313.3f,   80.0f, Z_HONEYCOMB, 82.0f},
-  {-1,  60.0f,  4428.8f,   80.0f, Z_HONEYCOMB, 82.0f},
-  {-1,  60.0f,  4544.3f,   80.0f, Z_HONEYCOMB, 82.0f},
-  {+1,  90.0f,  4602.0f,   80.0f, Z_HONEYCOMB, 58.0f},
-  { 0,   0.0f,  5054.5f,  280.0f, Z_LINE,       0.0f},
-  {-1,  28.0f,  9575.0f,  375.0f, Z_SHORTCUT,   0.0f},
-  {-1,  98.0f, 10194.0f,  180.0f, Z_SHORTCUT,   0.0f},
-  {-1,  88.0f, 12550.0f,  550.0f, Z_BUMP,       0.0f},
-  {+1,  88.0f, 12620.0f,  260.0f, Z_HUST,       0.0f},
-  {+1,  88.0f, 13500.0f, 1100.0f, Z_BUMP,       0.0f},
-  {-1,  88.0f, 13320.0f,   75.0f, Z_HUST,       0.0f},
-  {-1,  88.0f, 13520.0f,   75.0f, Z_HUST,       0.0f},
-  {+1,  88.0f, 13720.0f,   75.0f, Z_HUST,       0.0f},
-  {-1,  88.0f, 13820.0f,   90.0f, Z_HUST,      88.0f},
+  // Tổ ong (7 lục giác cạnh 115.5mm, nửa cạnh 57.7mm): idx 0..7 xoay thuần encoder theo góc tuyệt đối, idx 8 bắt line thoát
+  {+1,  90.0f,  3793.7f,  450.0f, Z_HONEYCOMB,   0.0f, -90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
+  {-1,  60.0f,  3851.5f,   80.0f, Z_HONEYCOMB,  57.7f, -30.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {-1,  60.0f,  3966.9f,   80.0f, Z_HONEYCOMB, 115.5f, +30.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {+1,  60.0f,  4082.4f,   80.0f, Z_HONEYCOMB, 115.5f, -30.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {-1,  60.0f,  4197.9f,   80.0f, Z_HONEYCOMB, 115.5f, +30.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {+1,  60.0f,  4313.3f,   80.0f, Z_HONEYCOMB, 115.5f, -30.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {-1,  60.0f,  4428.8f,   80.0f, Z_HONEYCOMB, 115.5f, +30.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {-1,  60.0f,  4544.3f,   80.0f, Z_HONEYCOMB, 115.5f, +90.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {+1,  90.0f,  4602.0f,   80.0f, Z_HONEYCOMB,  57.7f,   0.0f, TF_ABS_HEAD},
+  // Giao đường chéo sau Tổ ong -> đi thẳng
+  { 0,   0.0f,  5054.5f,  280.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
+  // Lối tắt có thưởng (góc tách ~15-20°, đỉnh ~100-103°)
+  {-1,  20.0f,  9575.0f,  375.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  {-1, 100.0f, 10194.0f,  180.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  // HUST: góc trên S/U (idx 12), góc dưới S/U (idx 13)
+  {-1,  90.0f, 12550.0f,  550.0f, Z_BUMP,        0.0f,   0.0f, TF_NONE},
+  {+1,  90.0f, 12620.0f,  260.0f, Z_HUST,        0.0f,   0.0f, TF_NONE},
+  // Vòm dưới chữ H (200-200-200-100mm; ở 85% còn 170-170-170-85mm): nối chuỗi góc tuyệt đối, idx 18 bắt line về đích
+  {+1,  90.0f, 13500.0f, 1100.0f, Z_BUMP,        0.0f, -90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
+  {-1,  90.0f, 13320.0f,   75.0f, Z_HUST,      200.0f,   0.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {-1,  90.0f, 13520.0f,   75.0f, Z_HUST,      200.0f, +90.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {+1,  90.0f, 13720.0f,   75.0f, Z_HUST,      200.0f,   0.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {-1,  90.0f, 13820.0f,   90.0f, Z_HUST,      100.0f, +90.0f, TF_ABS_HEAD},
 };
 const uint8_t LEN_PLAN_A = sizeof(PLAN_A) / sizeof(PLAN_A[0]);
 
 const TurnEvent PLAN_B[] = {
-  {+1,  90.0f,  3793.7f,  240.0f, Z_HONEYCOMB,  0.0f},
-  {-1,  60.0f,  3851.5f,   80.0f, Z_HONEYCOMB, 38.0f},
-  {+1,  60.0f,  3966.9f,   80.0f, Z_HONEYCOMB, 82.0f},
-  {-1,  60.0f,  4544.3f,  160.0f, Z_HONEYCOMB,  0.0f},
-  {+1,  90.0f,  4833.0f,  120.0f, Z_HONEYCOMB,  0.0f},
-  { 0,   0.0f,  5285.5f,  280.0f, Z_LINE,       0.0f},
-  {-1,  28.0f,  9806.0f,  375.0f, Z_SHORTCUT,   0.0f},
-  {-1,  98.0f, 10425.0f,  180.0f, Z_SHORTCUT,   0.0f},
-  {-1,  88.0f, 12781.0f,  550.0f, Z_BUMP,       0.0f},
-  {+1,  88.0f, 12851.0f,  260.0f, Z_HUST,       0.0f},
-  {+1,  88.0f, 13731.0f, 1100.0f, Z_BUMP,       0.0f},
-  {-1,  88.0f, 13551.0f,   75.0f, Z_HUST,       0.0f},
-  {-1,  88.0f, 13751.0f,   75.0f, Z_HUST,       0.0f},
-  {+1,  88.0f, 13951.0f,   75.0f, Z_HUST,       0.0f},
-  {-1,  88.0f, 14051.0f,   90.0f, Z_HUST,      88.0f},
+  {+1,  90.0f,  3793.7f,  240.0f, Z_HONEYCOMB,   0.0f, -90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
+  {-1,  60.0f,  3851.5f,   80.0f, Z_HONEYCOMB,  57.7f, -30.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {+1,  60.0f,  3966.9f,   80.0f, Z_HONEYCOMB, 115.5f, -90.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {-1,  60.0f,  4544.3f,  160.0f, Z_HONEYCOMB,   0.0f,   0.0f, TF_PURE_ENC},
+  {+1,  90.0f,  4833.0f,  120.0f, Z_HONEYCOMB,   0.0f,   0.0f, TF_NONE},
+  { 0,   0.0f,  5285.5f,  280.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
+  {-1,  20.0f,  9806.0f,  375.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  {-1, 100.0f, 10425.0f,  180.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  {-1,  90.0f, 12781.0f,  550.0f, Z_BUMP,        0.0f,   0.0f, TF_NONE},
+  {+1,  90.0f, 12851.0f,  260.0f, Z_HUST,        0.0f,   0.0f, TF_NONE},
+  {+1,  90.0f, 13731.0f, 1100.0f, Z_BUMP,        0.0f, -90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
+  {-1,  90.0f, 13551.0f,   75.0f, Z_HUST,      200.0f,   0.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {-1,  90.0f, 13751.0f,   75.0f, Z_HUST,      200.0f, +90.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {+1,  90.0f, 13951.0f,   75.0f, Z_HUST,      200.0f,   0.0f, TF_PURE_ENC | TF_ABS_HEAD},
+  {-1,  90.0f, 14051.0f,   90.0f, Z_HUST,      100.0f, +90.0f, TF_ABS_HEAD},
 };
 const uint8_t LEN_PLAN_B = sizeof(PLAN_B) / sizeof(PLAN_B[0]);
 
@@ -343,9 +357,9 @@ inline void maybePushLog(uint32_t tMs, float sMM, const SensorResult &sr, float 
 
 void dumpLogCSV() {
   Serial.println("=== RING-BUFFER LOG (CSV) ===");
-  Serial.printf("#META Mode=%d(%s) Route=%c Scale=%.2f MaxPWM=%d MinDyn=%d Kp=%.2f Kd=%.2f Kff=%.2f\n",
+  Serial.printf("#META Mode=%d(%s) Route=%c MapScale=%.2f Scale=%.2f MaxPWM=%d MinDyn=%d Kp=%.2f Kd=%.2f Kff=%.2f\n",
                 currentMode + 1, profiles[currentMode].name, USE_HONEYCOMB_ROUTE_A ? 'A' : 'B',
-                speedScale, maxSpeed, minDynBase, kp, kd, kff);
+                MAP_SCALE, speedScale, maxSpeed, minDynBase, kp, kd, kff);
   Serial.println("t_ms,s_mm,err,vRef_mms,vL_mms,vR_mms,head_deg,pwmL,pwmR,zone,jncIdx,act,flags");
   uint16_t start = (logCount == LOG_CAP) ? logHead : 0;
   for (uint16_t i = 0; i < logCount; i++) {
@@ -402,6 +416,12 @@ uint8_t jncIdx        = 0;
 int8_t  forcedDir     = 0;
 float   forcedDeg     = 0.0f;
 float   forcedAdvMM   = 155.0f;
+bool    forcedPureEnc = false; // true: xoay thuần theo encoder, không dùng lineCaught/stage 25
+bool    forcedUseAbs  = false; // true: xoay tới góc tuyệt đối forcedTargetHead
+float   absRefHead    = 0.0f;  // mốc góc tuyệt đối khi bắt đầu chuỗi Tổ ong hoặc vòm chữ H
+float   forcedTargetHead = 0.0f;
+float   advHoldHead      = 0.0f; // góc giữ thẳng trong turnStage == 1
+float   forcedChainExitS = -1.0f; // >=0: neo lại totalDistMM khi kết thúc bước cuối của chuỗi
 uint8_t turnStage     = 0;     // 0: không rẽ | 1: tiến tới tâm nút | 2: xoay tại chỗ | 25: xoay chậm tìm line
 float   turnStageT    = 0.0f;
 float   turnStartMM   = 0.0f;
@@ -484,7 +504,9 @@ void saveConfigToNVS() {
     prefs.putBytes("sMax", sensorMax, sizeof(sensorMax));
     prefs.putInt("mode", currentMode);
     prefs.putBool("routeA", USE_HONEYCOMB_ROUTE_A);
+    prefs.putFloat("mapSc", MAP_SCALE);
     prefs.putFloat("sensX", SENSOR_OFFSET_MM);
+    prefs.putFloat("coast", CHAIN_COAST_MM);
     prefs.putFloat("aBrake", A_BRAKE_MMSS);
     prefs.putFloat("aAccel", A_ACCEL_MMSS);
     prefs.putFloat("sStop", S_STOP_FINISH_MM);
@@ -526,7 +548,9 @@ void loadConfigFromNVS() {
     }
     int   vMode   = prefs.getInt("mode", 0);
     int   vPivMin = prefs.getInt("pivMin", DEFAULT_PWM_PIVOT_MIN);
+    float vMapSc  = prefs.getFloat("mapSc", 0.85f);
     float vSensX  = prefs.getFloat("sensX", 170.0f);
+    float vCoast  = prefs.getFloat("coast", 10.0f);
     float vABrake = prefs.getFloat("aBrake", 3800.0f);
     float vAAccel = prefs.getFloat("aAccel", 3500.0f);
     float vSStop  = prefs.getFloat("sStop", 235.0f);
@@ -539,7 +563,9 @@ void loadConfigFromNVS() {
 
     currentMode           = constrain(vMode, 0, 2);
     USE_HONEYCOMB_ROUTE_A = prefs.getBool("routeA", true);
+    MAP_SCALE             = isfinite(vMapSc)  ? constrain(vMapSc,  0.50f, 1.20f)    : 0.85f;
     SENSOR_OFFSET_MM      = isfinite(vSensX)  ? constrain(vSensX,  40.0f, 300.0f)   : 170.0f;
+    CHAIN_COAST_MM        = isfinite(vCoast)  ? constrain(vCoast,  0.0f,  40.0f)    : 10.0f;
     A_BRAKE_MMSS          = isfinite(vABrake) ? constrain(vABrake, 500.0f, 15000.0f): 3800.0f;
     A_ACCEL_MMSS          = isfinite(vAAccel) ? constrain(vAAccel, 500.0f, 15000.0f): 3500.0f;
     S_STOP_FINISH_MM      = isfinite(vSStop)  ? constrain(vSStop,  50.0f, 400.0f)   : 235.0f;
@@ -579,13 +605,16 @@ void loadConfigFromNVS() {
 void computeBackwardBrakeProfile() {
   const SpeedZone* zArr = USE_HONEYCOMB_ROUTE_A ? ZONES_ROUTE_A : ZONES_ROUTE_B;
   uint8_t zLen          = USE_HONEYCOMB_ROUTE_A ? NUM_ZONES_A : NUM_ZONES_B;
+  float ms              = MAP_SCALE;
+  float tightCurveSc    = sqrtf(min(1.0f, ms)); // khi sa bàn thu nhỏ, bán kính cua nhỏ đi -> giảm v theo sqrt(R)
 
   for (uint16_t i = 0; i < PLAN_LEN; i++) {
     float s = i * (float)PLAN_STEP_MM;
     float v = zArr[zLen - 1].vMaxMMS * speedScale;
     for (uint8_t z = 0; z < zLen; z++) {
-      if (s >= zArr[z].sStartMM && s <= zArr[z].sEndMM) {
-        v = zArr[z].vMaxMMS * speedScale;
+      if (s >= zArr[z].sStartMM * ms && s <= zArr[z].sEndMM * ms) {
+        float cSc = (zArr[z].type == Z_CURVE || zArr[z].type == Z_GEAR) ? tightCurveSc : 1.0f;
+        v = zArr[z].vMaxMMS * speedScale * cSc;
         break;
       }
     }
@@ -599,6 +628,7 @@ void computeBackwardBrakeProfile() {
 }
 
 void queryPlan(float sMM, float &outV_mms, float &outKappa, ZoneType &outType) {
+  float ms    = MAP_SCALE;
   float sAxle = max(0.0f, sMM);
   float sMid  = max(0.0f, sMM + 55.0f);
   float sSens = max(0.0f, sMM + SENSOR_OFFSET_MM);
@@ -610,18 +640,18 @@ void queryPlan(float sMM, float &outV_mms, float &outKappa, ZoneType &outType) {
   uint8_t zLen          = USE_HONEYCOMB_ROUTE_A ? NUM_ZONES_A : NUM_ZONES_B;
   outKappa = 0.0f;
   for (uint8_t z = 0; z < zLen; z++) {
-    if (sMid >= zArr[z].sStartMM && sMid <= zArr[z].sEndMM) {
-      outKappa = zArr[z].curvatureInvM;
+    if (sMid >= zArr[z].sStartMM * ms && sMid <= zArr[z].sEndMM * ms) {
+      outKappa = zArr[z].curvatureInvM / ms;
       break;
     }
   }
-  if (sSens > zArr[zLen - 1].sEndMM) {
+  if (sSens > zArr[zLen - 1].sEndMM * ms) {
     outType = zArr[zLen - 1].type;
     return;
   }
   outType = Z_LINE;
   for (uint8_t z = 0; z < zLen; z++) {
-    if (sSens >= zArr[z].sStartMM && sSens <= zArr[z].sEndMM) {
+    if (sSens >= zArr[z].sStartMM * ms && sSens <= zArr[z].sEndMM * ms) {
       outType = zArr[z].type;
       return;
     }
@@ -667,6 +697,9 @@ void resetWheelPI() {
 void stopRobot() {
   isRunning           = false;
   forcedDir           = 0;
+  forcedPureEnc       = false;
+  forcedUseAbs        = false;
+  forcedChainExitS    = -1.0f;
   turnStage           = 0;
   reverseUntilMs      = 0;
   stallStartMs        = 0;
@@ -743,7 +776,9 @@ void resetConfigToDefault() {
   for (int i = 0; i < 8; i++) { sensorMin[i] = 500; sensorMax[i] = 3500; }
   updateInvSensorRange();
   USE_HONEYCOMB_ROUTE_A = true;
+  MAP_SCALE             = 0.85f;
   SENSOR_OFFSET_MM      = 170.0f;
+  CHAIN_COAST_MM        = 10.0f;
   A_BRAKE_MMSS          = 3800.0f;
   A_ACCEL_MMSS          = 3500.0f;
   S_STOP_FINISH_MM      = 235.0f;
@@ -772,8 +807,9 @@ SensorResult readLineSensors(ZoneType zType, float dsAbsMM) {
     if (dark[i] > 0.50f) darkCnt++;
   }
 
+  float ms   = MAP_SCALE;
   float sEff = totalDistMM + SENSOR_OFFSET_MM;
-  bool inInvWindow = (sEff >= 1150.0f && sEff <= 2050.0f);
+  bool inInvWindow = (sEff >= 1150.0f * ms && sEff <= 2050.0f * ms);
   if (ENABLE_AUTO_INVERT && (inInvWindow || invertedMode)) {
     bool lw = (dark[0] > 0.55f) || (dark[1] > 0.60f);
     bool rw = (dark[7] > 0.55f) || (dark[6] > 0.60f);
@@ -792,8 +828,8 @@ SensorResult readLineSensors(ZoneType zType, float dsAbsMM) {
         if (invExitDistMM >= 25.0f || !inInvWindow) {
           invertedMode = false;
           invExitDistMM = 0.0f;
-          if (inInvWindow && sEff >= 1650.0f) {
-            totalDistMM = max(0.0f, 1818.0f - SENSOR_OFFSET_MM);
+          if (inInvWindow && sEff >= 1650.0f * ms) {
+            totalDistMM = max(0.0f, 1818.0f * ms - SENSOR_OFFSET_MM);
           }
         }
       } else {
@@ -817,9 +853,9 @@ SensorResult readLineSensors(ZoneType zType, float dsAbsMM) {
   }
   for (int i = 0; i < 8; i++) sClean[i] = s[i];
 
-  float rShift = USE_HONEYCOMB_ROUTE_A ? 0.0f : 231.0f;
+  float rShift = (USE_HONEYCOMB_ROUTE_A ? 0.0f : 231.0f) * ms;
 
-  bool inRewBox = (zType == Z_SHORTCUT && sEff >= (9620.0f + rShift) && sEff <= (10020.0f + rShift));
+  bool inRewBox = (zType == Z_SHORTCUT && sEff >= (9620.0f * ms + rShift) && sEff <= (10020.0f * ms + rShift));
   if (inRewBox && (sClean[2] + sClean[3] + sClean[4] + sClean[5]) > 0.35f) {
     sClean[0] = sClean[1] = sClean[6] = sClean[7] = 0.0f;
   }
@@ -836,15 +872,15 @@ SensorResult readLineSensors(ZoneType zType, float dsAbsMM) {
 
   if (ENABLE_TRACKING_GATE && clCnt >= 2) {
     int bestCl = 0;
-    if ((zType == Z_LINE && sEff >= (4750.0f + rShift) && sEff <= (5350.0f + rShift)) ||
-        (zType == Z_GEAR && sEff < (7950.0f + rShift))) {
+    if ((zType == Z_LINE && sEff >= (4750.0f * ms + rShift) && sEff <= (5350.0f * ms + rShift)) ||
+        (zType == Z_GEAR && sEff < (7950.0f * ms + rShift))) {
       bestCl = clCnt - 1;
-    } else if (zType == Z_CURVED_GAP || (zType == Z_GEAR && sEff >= (7950.0f + rShift))) {
+    } else if (zType == Z_CURVED_GAP || (zType == Z_GEAR && sEff >= (7950.0f * ms + rShift))) {
       bestCl = 0;
-    } else if (zType == Z_SHORTCUT && sEff < (10100.0f + rShift)) {
+    } else if (zType == Z_SHORTCUT && sEff < (10100.0f * ms + rShift)) {
       bestCl = 0;
-    } else if ((sEff >= (11150.0f + rShift) && sEff <= (11520.0f + rShift)) ||
-               (sEff >= (12120.0f + rShift) && sEff <= (12560.0f + rShift))) {
+    } else if ((sEff >= (11150.0f * ms + rShift) && sEff <= (11520.0f * ms + rShift)) ||
+               (sEff >= (12120.0f * ms + rShift) && sEff <= (12560.0f * ms + rShift))) {
       bestCl = clCnt - 1;
     } else {
       float bestDiff = 999.0f;
@@ -875,13 +911,13 @@ SensorResult readLineSensors(ZoneType zType, float dsAbsMM) {
   if (sumS >= 0.40f && res.activeCount > 0) {
     res.hasLine = true;
     float err = sumW / sumS;
-    if (sEff >= (4900.0f + rShift) && sEff <= (5200.0f + rShift) &&
+    if (sEff >= (4900.0f * ms + rShift) && sEff <= (5200.0f * ms + rShift) &&
         clCnt == 1 && res.activeCount >= 4 && err < -0.3f) err = 0.0f;
-    if (sEff >= (8050.0f + rShift) && sEff <= (8500.0f + rShift) && res.activeCount >= 2 && err > 1.2f) err = 0.3f;
-    if (sEff >= (11180.0f + rShift) && sEff <= (11480.0f + rShift) && res.activeCount >= 3 && err < -1.0f) err = -0.3f;
+    if (sEff >= (8050.0f * ms + rShift) && sEff <= (8500.0f * ms + rShift) && res.activeCount >= 2 && err > 1.2f) err = 0.3f;
+    if (sEff >= (11180.0f * ms + rShift) && sEff <= (11480.0f * ms + rShift) && res.activeCount >= 3 && err < -1.0f) err = -0.3f;
     uint8_t idxSU  = USE_HONEYCOMB_ROUTE_A ? 13 : 9;
     uint8_t idxHIn = USE_HONEYCOMB_ROUTE_A ? 14 : 10;
-    if (jncIdx == idxSU && sEff >= (12120.0f + rShift) && sEff <= (12560.0f + rShift) &&
+    if (jncIdx == idxSU && sEff >= (12120.0f * ms + rShift) && sEff <= (12560.0f * ms + rShift) &&
         res.activeCount >= 3 && err < -0.8f) err = 0.0f;
     if (jncIdx == idxHIn && res.activeCount >= 4 && err > 0.6f) err = 0.0f;
     res.error = err;
@@ -911,6 +947,12 @@ void startRun() {
   forcedDir = 0;
   forcedDeg = 0.0f;
   forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 15.0f);
+  forcedPureEnc = false;
+  forcedUseAbs  = false;
+  absRefHead    = 0.0f;
+  forcedTargetHead = 0.0f;
+  advHoldHead      = 0.0f;
+  forcedChainExitS = -1.0f;
   turnStage = 0;
   turnStageT = 0.0f;
   turnStartMM = 0.0f;
@@ -943,20 +985,21 @@ void startRun() {
   lastLoopUs = micros();
   isRunning  = true;
   digitalWrite(LED_PIN, HIGH);
-  Serial.printf(">>> START RUN! Mode=%s Route=%c Enc=%d\n",
-                profiles[currentMode].name, USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', ENABLE_ENCODERS);
+  Serial.printf(">>> START RUN! Mode=%s Route=%c MapScale=%.2f Enc=%d\n",
+                profiles[currentMode].name, USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', MAP_SCALE, ENABLE_ENCODERS);
 }
 
 // ================= 14. SERIAL CLI NON-BLOCKING =================
 void printStatus() {
   Serial.println("=== STATUS ===");
-  Serial.printf("Mode=%d (%s) | Route=%c | Running=%d | Enc=%d\n",
+  Serial.printf("Mode=%d (%s) | Route=%c | MapScale=%.2f | Running=%d | Enc=%d\n",
                 currentMode + 1, profiles[currentMode].name,
-                USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', isRunning, ENABLE_ENCODERS);
+                USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', MAP_SCALE, isRunning, ENABLE_ENCODERS);
   Serial.printf("Scale=%.2f MaxPWM=%d MinDyn=%d | Kp=%.2f Kd=%.2f Kff=%.2f\n",
                 speedScale, maxSpeed, minDynBase, kp, kd, kff);
-  Serial.printf("MaxV=%.0f SensX=%.1f PivMin=%d Exp=%.2f Boost=%.2f FFsign=%+.0f\n",
-                MAX_SPEED_MMS, SENSOR_OFFSET_MM, PWM_PIVOT_MIN, CURVE_EXP, EDGE_BOOST_MAX, FF_SIGN);
+  Serial.printf("MaxV=%.0f SensX=%.1f Coast=%.1f SStop=%.0f PivMin=%d Exp=%.2f Boost=%.2f FFsign=%+.0f\n",
+                MAX_SPEED_MMS, SENSOR_OFFSET_MM, CHAIN_COAST_MM, S_STOP_FINISH_MM,
+                PWM_PIVOT_MIN, CURVE_EXP, EDGE_BOOST_MAX, FF_SIGN);
   Serial.print("IR Min/Max: ");
   for (int i = 0; i < 8; i++) Serial.printf("[%d:%d/%d] ", i, sensorMin[i], sensorMax[i]);
   Serial.println();
@@ -1057,9 +1100,25 @@ void executeCLICommand(const char* rawCmd) {
     SENSOR_OFFSET_MM = constrain(v, 40.0f, 300.0f);
     Serial.printf("sensx=%.1f mm (go 'save' de luu)\n", SENSOR_OFFSET_MM);
   }
+  else if (strncmp(cmd, "scale=", 6) == 0) {
+    float v = (float)atof(cmd + 6);
+    MAP_SCALE = constrain(v, 0.50f, 1.20f);
+    computeBackwardBrakeProfile();
+    Serial.printf("scale=%.2f (go 'save' de luu)\n", MAP_SCALE);
+  }
+  else if (strncmp(cmd, "coast=", 6) == 0) {
+    float v = (float)atof(cmd + 6);
+    CHAIN_COAST_MM = constrain(v, 0.0f, 40.0f);
+    Serial.printf("coast=%.1f mm (go 'save' de luu)\n", CHAIN_COAST_MM);
+  }
+  else if (strncmp(cmd, "sstop=", 6) == 0) {
+    float v = (float)atof(cmd + 6);
+    S_STOP_FINISH_MM = constrain(v, 50.0f, 400.0f);
+    Serial.printf("sstop=%.0f mm (go 'save' de luu)\n", S_STOP_FINISH_MM);
+  }
   else {
     Serial.println("CLI: go | stop | calib | dump | status | save | resetnvs | enc | ir | mode1..3 | route=A/B");
-    Serial.println("     kp= kd= kff= | ffsign=1/-1 | maxv= | boost= | exp= | piv= | sensx=");
+    Serial.println("     kp= kd= kff= | ffsign=1/-1 | maxv= | boost= | exp= | piv= | sensx= | scale= | coast= | sstop=");
   }
 }
 
@@ -1224,17 +1283,18 @@ void loop() {
     queryPlan(totalDistMM, vRefMMS, mapKappa, zType);
   }
 
-  float rShift = USE_HONEYCOMB_ROUTE_A ? 0.0f : 231.0f;
+  float ms = MAP_SCALE;
+  float rShift = (USE_HONEYCOMB_ROUTE_A ? 0.0f : 231.0f) * ms;
   float sSensPre = totalDistMM + SENSOR_OFFSET_MM;
   uint8_t idxBump1 = USE_HONEYCOMB_ROUTE_A ? 12 : 8;
   uint8_t idxBump2 = USE_HONEYCOMB_ROUTE_A ? 14 : 10;
   if (ENABLE_SPEED_PLANNER &&
-      ((jncIdx == idxBump1 && sSensPre >= (11520.0f + rShift)) ||
-       (jncIdx == idxBump2 && sSensPre >= (12680.0f + rShift)))) {
+      ((jncIdx == idxBump1 && sSensPre >= (11520.0f * ms + rShift)) ||
+       (jncIdx == idxBump2 && sSensPre >= (12680.0f * ms + rShift)))) {
     zType = Z_BUMP;
     vRefMMS = min(vRefMMS, 820.0f * speedScale);
-    if ((jncIdx == idxBump1 && sSensPre >= (12100.0f + rShift)) ||
-        (jncIdx == idxBump2 && sSensPre >= (13100.0f + rShift))) {
+    if ((jncIdx == idxBump1 && sSensPre >= (12100.0f * ms + rShift)) ||
+        (jncIdx == idxBump2 && sSensPre >= (13100.0f * ms + rShift))) {
       vRefMMS = min(vRefMMS, 760.0f * speedScale);
     }
   }
@@ -1287,13 +1347,15 @@ void loop() {
   if (ENABLE_ENCODERS && ENABLE_FINISH_STOP && zType == Z_FINISH) {
     float sFinSens = totalDistMM + SENSOR_OFFSET_MM;
     if (!finishBraking && !invertedMode &&
-        (sr.tJunction || sr.activeCount >= 5 || (sFinSens >= (15380.0f + rShift)))) {
+        (sr.tJunction || sr.activeCount >= 5 || (sFinSens >= (15380.0f * ms + rShift)))) {
       finishBraking = true;
       finishEntryMM = totalDistMM;
     }
     if (finishBraking) {
+      // Ô đích 300mm * MAP_SCALE (ở 85% là 255mm -> dừng tối đa ~220mm cho an toàn)
+      float effStopMM = min(S_STOP_FINISH_MM, max(185.0f, 300.0f * ms - 35.0f));
       float sInBox = totalDistMM - finishEntryMM;
-      float sRem   = S_STOP_FINISH_MM - sInBox;
+      float sRem   = effStopMM - sInBox;
       if (sRem <= 8.0f) {
         maybePushLog(millis() - runStartMs, totalDistMM, sr, 0.0f, velL_filt, velR_filt,
                      headingDeg, 0, 0, (uint8_t)zType, jncIdx, invertedMode, turnStage, finishBraking);
@@ -1324,22 +1386,31 @@ void loop() {
 
     if (forcedDir == 0 && jncIdx < activePlanLen) {
       const TurnEvent &ev = activePlan[jncIdx];
+      float sExp = ev.sExpect * ms;
+      float sTol = max(55.0f, ev.tol * ms);
+
       if (ev.chainAdvMM > 0.0f) {
         // Không kích chuỗi rẽ mù nếu nút cha trước đó đã bị lỡ hoặc xe đã vượt xa vị trí dự kiến
-        if (missedRecovery || sSensor > ev.sExpect + ev.tol + 250.0f) {
+        if (missedRecovery || sSensor > sExp + sTol + 250.0f) {
           jncIdx++;
           jncConfirmCnt = 0;
         } else {
-          forcedDir     = ev.dir;
-          forcedDeg     = ev.deg;
-          forcedAdvMM   = ev.chainAdvMM;
-          turnStage     = 1;
-          turnStageT    = 0.0f;
-          turnStartMM   = totalDistMM;
-          turnStartHead = headingDeg;
+          bool isLastInChain = (jncIdx + 1 >= activePlanLen) || (activePlan[jncIdx + 1].chainAdvMM <= 0.0f);
+          forcedDir        = ev.dir;
+          forcedDeg        = ev.deg;
+          forcedAdvMM      = max(20.0f, ev.chainAdvMM * ms - CHAIN_COAST_MM);
+          forcedPureEnc    = ((ev.flags & TF_PURE_ENC) != 0);
+          forcedUseAbs     = ((ev.flags & TF_ABS_HEAD) != 0);
+          advHoldHead      = forcedUseAbs ? forcedTargetHead : headingDeg;
+          forcedTargetHead = absRefHead + ev.absDeg;
+          forcedChainExitS = isLastInChain ? sExp : -1.0f;
+          turnStage        = 1;
+          turnStageT       = 0.0f;
+          turnStartMM      = totalDistMM;
+          turnStartHead    = headingDeg;
           jncIdx++;
         }
-      } else if (sSensor > ev.sExpect + ev.tol) {
+      } else if (sSensor > sExp + sTol) {
         jncIdx++;
         missedRecovery = true;
         jncConfirmCnt = 0;
@@ -1359,7 +1430,7 @@ void loop() {
                          (jncIdx == 9 && zType == Z_BUMP) ||
                          (jncIdx == 10 && zType == Z_HUST)));
 
-        if (fabsf(sSensor - ev.sExpect) <= ev.tol && !invertedMode && zoneOk) {
+        if (fabsf(sSensor - sExp) <= sTol && !invertedMode && zoneOk) {
           bool trig = false;
           uint8_t idxPsplitRet = USE_HONEYCOMB_ROUTE_A ? 10 : 6;
           uint8_t idxCorner100 = USE_HONEYCOMB_ROUTE_A ? 11 : 7;
@@ -1370,13 +1441,13 @@ void loop() {
           if (ev.zone == Z_HONEYCOMB) trig = sr.tJunction || sr.leftBranch || sr.rightBranch;
           else if (ev.dir == 0) trig = sr.leftBranch || sr.rightBranch || sr.tJunction || sr.ySplit;
           else if (jncIdx == idxPsplitRet) trig = sr.leftEdge && (sr.tJunction || sr.leftBranch || sr.ySplit || sr.activeCount >= 3);
-          else if (jncIdx == idxCorner100) trig = sr.leftBranch || sr.tJunction || (!sr.hasLine && sSensor >= (10175.0f + rShift));
-          else if (jncIdx == idxEndS) trig = (sSensor >= (12000.0f + rShift)) && (sr.leftBranch || sr.tJunction);
-          else if (jncIdx == idxSU) trig = (sSensor >= (12580.0f + rShift)) && (sr.rightBranch || sr.tJunction || !sr.hasLine || (sr.rightEdge && sr.activeCount >= 3));
-          else if (jncIdx == idxHIn) trig = (!sr.hasLine) && (sSensor >= (13080.0f + rShift));
+          else if (jncIdx == idxCorner100) trig = sr.leftBranch || sr.tJunction || (!sr.hasLine && sSensor >= (10175.0f * ms + rShift));
+          else if (jncIdx == idxEndS) trig = (sSensor >= (12000.0f * ms + rShift)) && (sr.leftBranch || sr.tJunction);
+          else if (jncIdx == idxSU) trig = (sSensor >= (12580.0f * ms + rShift)) && (sr.rightBranch || sr.tJunction || !sr.hasLine || (sr.rightEdge && sr.activeCount >= 3));
+          else if (jncIdx == idxHIn) trig = (!sr.hasLine) && (sSensor >= (13080.0f * ms + rShift));
           else {
             bool dirBr = (ev.dir < 0) ? sr.leftBranch : sr.rightBranch;
-            trig = dirBr || sr.tJunction || (!sr.hasLine && sSensor >= ev.sExpect - 45.0f);
+            trig = dirBr || sr.tJunction || (!sr.hasLine && sSensor >= sExp - 45.0f * ms);
           }
 
           if (trig) {
@@ -1387,28 +1458,27 @@ void loop() {
             if (jncConfirmCnt >= (oneSampleOk ? 1 : 2)) {
               jncConfirmCnt = 0;
               uint8_t curIdx = jncIdx;
-              float anchorS = ev.sExpect;
-              if (curIdx == idxPsplitRet) anchorS = 9420.0f + rShift;
-              else if (curIdx == idxEndS) anchorS = 12120.0f + rShift;
-              else if (curIdx == idxHIn)  anchorS = 13120.0f + rShift;
+              float anchorS = sExp;
+              if (curIdx == idxPsplitRet) anchorS = 9420.0f * ms + rShift;
+              else if (curIdx == idxEndS) anchorS = 12120.0f * ms + rShift;
+              else if (curIdx == idxHIn)  anchorS = 13120.0f * ms + rShift;
               totalDistMM = max(0.0f, anchorS - SENSOR_OFFSET_MM);
               missedRecovery = false;
               jncIdx++;
               if (ev.dir == 0) {
-                if (fabsf(sr.error) < 1.5f) straightLockUntilMM = totalDistMM + 45.0f;
+                if (fabsf(sr.error) < 1.5f) straightLockUntilMM = totalDistMM + 45.0f * ms;
               } else {
-                forcedDir = ev.dir;
-                forcedDeg = ev.deg;
-                // Quy đổi quãng tiến tới tâm nút theo SENSOR_OFFSET_MM (mặc định 170mm)
-                float sensShift = SENSOR_OFFSET_MM - 95.0f;
-                if (curIdx == idxPsplitRet)      forcedAdvMM = max(75.0f, min(185.0f, 122.0f + sensShift));
-                else if (curIdx == idxCorner100) forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 15.0f);
-                else if (curIdx == idxEndS)      forcedAdvMM = max(60.0f, 38.0f + sensShift);
-                else if (curIdx == idxSU)        forcedAdvMM = max(75.0f, 80.0f + sensShift);
-                else if (curIdx == idxHIn)       forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 15.0f);
-                else if (curIdx > idxHIn)        forcedAdvMM = max(65.0f, 56.0f + sensShift);
-                else if (curIdx == 0)            forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 12.0f);
-                else                             forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 12.0f);
+                if ((ev.flags & TF_ABS_START) != 0) absRefHead = headingDeg;
+                forcedDir        = ev.dir;
+                forcedDeg        = ev.deg;
+                forcedPureEnc    = ((ev.flags & TF_PURE_ENC) != 0);
+                forcedUseAbs     = ((ev.flags & TF_ABS_HEAD) != 0);
+                forcedTargetHead = absRefHead + ev.absDeg;
+                advHoldHead      = headingDeg;
+                forcedChainExitS = -1.0f;
+                // Quy đổi quãng tiến trục bánh tới đúng tâm nút giao theo SENSOR_OFFSET_MM (170mm)
+                if (curIdx == idxPsplitRet) forcedAdvMM = max(75.0f, min(185.0f, SENSOR_OFFSET_MM + 10.0f));
+                else                        forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 15.0f);
                 turnStage     = 1;
                 turnStageT    = 0.0f;
                 turnStartMM   = totalDistMM;
@@ -1438,22 +1508,26 @@ void loop() {
         turnStageT = 0.0f;
       } else {
         int baseAdv = constrain((int)((vRefMMS / MAX_SPEED_MMS) * 255.0f), max(PWM_PIVOT_MIN, 55), 130);
-        int hold = (int)(HEAD_HOLD_KP * (headingDeg - turnStartHead));  // trôi trái -> bù sang phải
+        int hold = (int)(HEAD_HOLD_KP * (headingDeg - advHoldHead));  // trôi trái -> bù sang phải
         cmdL = baseAdv + hold;
         cmdR = baseAdv - hold;
       }
     }
     if (turnStage == 2) {
-      float remaining = forcedDeg - rotated;
-      bool lineCaught = (rotated >= 0.6f * forcedDeg) && sr.hasLine &&
+      float remaining = forcedUseAbs
+                        ? ((float)forcedDir * (headingDeg - forcedTargetHead))
+                        : (forcedDeg - rotated);
+      bool lineCaught = (!forcedPureEnc) && (rotated >= 0.6f * forcedDeg) && sr.hasLine &&
                         sr.activeCount >= 1 && sr.activeCount <= 3 && fabsf(sr.error) < 1.0f;
       if (lineCaught) {
         done = true;
-      } else if (remaining <= 0.0f || turnStageT > 1.6f) {
+      } else if (forcedPureEnc && (remaining <= 2.0f || turnStageT > 1.6f)) {
+        done = true;
+      } else if (!forcedPureEnc && (remaining <= 0.0f || turnStageT > 1.6f)) {
         turnStage  = 25;
         turnStageT = 0.0f;
       } else {
-        int pv = constrain(PWM_PIVOT_MIN + (int)(0.9f * remaining), PWM_PIVOT_MIN, 150);
+        int pv = constrain(PWM_PIVOT_MIN + (int)(0.9f * max(0.0f, remaining)), PWM_PIVOT_MIN, 150);
         cmdL =  forcedDir * pv;   // dir=+1 (phải): bánh trái tiến, bánh phải lùi
         cmdR = -forcedDir * pv;
       }
@@ -1472,10 +1546,16 @@ void loop() {
 
     if (done) {
       int8_t prevDir = forcedDir;
-      forcedDir    = 0;
-      turnStage    = 0;
-      turnStageT   = 0.0f;
-      postTurnT    = 0.0f;
+      if (forcedChainExitS >= 0.0f) {
+        totalDistMM = forcedChainExitS;
+        forcedChainExitS = -1.0f;
+      }
+      forcedDir     = 0;
+      forcedPureEnc = false;
+      forcedUseAbs  = false;
+      turnStage     = 0;
+      turnStageT    = 0.0f;
+      postTurnT     = 0.0f;
       // Nếu thoát rẽ mà chưa thấy line, giữ dấu lệch mạnh để bộ mất line KHÔNG hiểu nhầm là đoạn đứt thẳng
       lastError    = sr.hasLine ? sr.error : ((float)prevDir * 3.5f);
       dFiltered    = 0.0f;
@@ -1488,6 +1568,12 @@ void loop() {
       straightMM   = 0.0f;
       vCmdPrev     = 0.0f;
       resetWheelPI();
+      // Phanh chủ động 1 nhịp (5ms) để hãm quán tính xoay & tránh lọt sang nhánh mất line giữa chuỗi Tổ ong/H
+      setMotorRaw(0, 0);
+      lastPwmL = 0; lastPwmR = 0;
+      maybePushLog(millis() - runStartMs, totalDistMM, sr, vRefMMS, velL_filt, velR_filt,
+                   headingDeg, 0, 0, (uint8_t)zType, jncIdx, invertedMode, turnStage, finishBraking);
+      return;
     } else {
       setMotorRaw(cmdL, cmdR);
       lastPwmL = cmdL; lastPwmR = cmdR;
@@ -1606,13 +1692,15 @@ void loop() {
     unsigned long lostMs = millis() - lostStartMs;
     float lostDist = fabsf(totalDistMM - lostStartMM);
     bool gapZone = (zType == Z_CURVED_GAP || zType == Z_SHORTCUT || zType == Z_BUMP || zType == Z_FINISH);
-    bool wasCentered = fabsf(lostErrSnap) < 1.2f;   // mất line khi đang ở giữa -> khả năng cao là đoạn đứt
+    // Trong Z_CURVED_GAP (cung R574 nét đứt), xe dài lệch line lớn hơn -> nới ngưỡng để không xoay tại chỗ giữa cung đứt
+    float centerLim = (zType == Z_CURVED_GAP) ? 2.6f : 1.2f;
+    bool wasCentered = fabsf(lostErrSnap) < centerLim;
 
     unsigned long gapMs = 0;
     float gapMM = 0.0f;
     if (wasCentered) {
       gapMs = gapZone ? 700UL : 180UL;
-      gapMM = gapZone ? 450.0f : 70.0f;
+      gapMM = gapZone ? (450.0f * ms) : 70.0f;
     }
     bool inGap = wasCentered && (lostMs < gapMs) && (lostDist < gapMM);
 
