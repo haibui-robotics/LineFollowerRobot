@@ -49,7 +49,7 @@ const bool ACTIVE_ON_BLACK = false;  // false: line đen ADC THẤP, nền trắ
 // Thông số cơ khí & vật lý
 float MAP_SCALE        = 0.85f;  // 0.85 cho sa bàn in 85% | 1.00 cho sa bàn thi đấu chuẩn (lệnh scale=)
 float SENSOR_OFFSET_MM = 170.0f;
-float CHAIN_COAST_MM   = 10.0f;  // trừ quán tính trượt cho các đoạn nối chuỗi Tổ ong / chữ H (lệnh coast=)
+float CHAIN_COAST_MM   = 2.0f;   // trừ quán tính trượt cho các đoạn nối chuỗi Tổ ong / chữ H (lệnh coast=)
 float A_BRAKE_MMSS     = 3800.0f;
 float A_ACCEL_MMSS     = 3500.0f;
 float S_STOP_FINISH_MM = 235.0f;
@@ -74,7 +74,7 @@ const float TICKS_PER_REV     = 408.3f;
 const float MM_PER_TICK       = (3.1415926f * WHEEL_DIAMETER_MM) / TICKS_PER_REV;
 const float RAD_TO_DEG_F      = 57.2957795f;
 float       MAX_SPEED_MMS     = 1050.0f;  // đo thực tế từ log encoder: v_thực / pwm * 255
-const int   DEFAULT_PWM_PIVOT_MIN = 30;
+const int   DEFAULT_PWM_PIVOT_MIN = 64;   // đo từ log: <=54 bị đứng bánh, >=58 quay mượt
 int         PWM_PIVOT_MIN         = DEFAULT_PWM_PIVOT_MIN;
 
 // ================= 3. SƠ ĐỒ CHÂN PHẦN CỨNG =================
@@ -260,8 +260,8 @@ const TurnEvent PLAN_A[] = {
   {-1,  60.0f,  4428.8f,   80.0f, Z_HONEYCOMB, 115.5f, +30.0f, TF_PURE_ENC | TF_ABS_HEAD},
   {-1,  60.0f,  4544.3f,   80.0f, Z_HONEYCOMB, 115.5f, +90.0f, TF_PURE_ENC | TF_ABS_HEAD},
   {+1,  90.0f,  4602.0f,   80.0f, Z_HONEYCOMB,  57.7f,   0.0f, TF_ABS_HEAD},
-  // Giao đường chéo sau Tổ ong -> đi thẳng
-  { 0,   0.0f,  5054.5f,  280.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
+  // Giao đường chéo sau Tổ ong -> đi thẳng (tol 110mm để không kích nhầm ngay cửa ra Tổ ong)
+  { 0,   0.0f,  5054.5f,  110.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
   // Lối tắt có thưởng (góc tách ~15-20°, đỉnh ~100-103°)
   {-1,  20.0f,  9575.0f,  375.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   {-1, 100.0f, 10194.0f,  180.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
@@ -283,7 +283,7 @@ const TurnEvent PLAN_B[] = {
   {+1,  60.0f,  3966.9f,   80.0f, Z_HONEYCOMB, 115.5f, -90.0f, TF_PURE_ENC | TF_ABS_HEAD},
   {-1,  60.0f,  4544.3f,  160.0f, Z_HONEYCOMB,   0.0f,   0.0f, TF_PURE_ENC},
   {+1,  90.0f,  4833.0f,  120.0f, Z_HONEYCOMB,   0.0f,   0.0f, TF_NONE},
-  { 0,   0.0f,  5285.5f,  280.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
+  { 0,   0.0f,  5285.5f,  110.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
   {-1,  20.0f,  9806.0f,  375.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   {-1, 100.0f, 10425.0f,  180.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   {-1,  90.0f, 12781.0f,  550.0f, Z_BUMP,        0.0f,   0.0f, TF_NONE},
@@ -427,6 +427,7 @@ float   turnStageT    = 0.0f;
 float   turnStartMM   = 0.0f;
 float   turnStartHead = 0.0f;
 float   straightLockUntilMM = -1.0f;
+float   straightLockHead    = 0.0f;
 
 bool  finishBraking  = false;
 float finishEntryMM  = 0.0f;
@@ -550,7 +551,7 @@ void loadConfigFromNVS() {
     int   vPivMin = prefs.getInt("pivMin", DEFAULT_PWM_PIVOT_MIN);
     float vMapSc  = prefs.getFloat("mapSc", 0.85f);
     float vSensX  = prefs.getFloat("sensX", 170.0f);
-    float vCoast  = prefs.getFloat("coast", 10.0f);
+    float vCoast  = prefs.getFloat("coast", 2.0f);
     float vABrake = prefs.getFloat("aBrake", 3800.0f);
     float vAAccel = prefs.getFloat("aAccel", 3500.0f);
     float vSStop  = prefs.getFloat("sStop", 235.0f);
@@ -565,7 +566,7 @@ void loadConfigFromNVS() {
     USE_HONEYCOMB_ROUTE_A = prefs.getBool("routeA", true);
     MAP_SCALE             = isfinite(vMapSc)  ? constrain(vMapSc,  0.50f, 1.20f)    : 0.85f;
     SENSOR_OFFSET_MM      = isfinite(vSensX)  ? constrain(vSensX,  40.0f, 300.0f)   : 170.0f;
-    CHAIN_COAST_MM        = isfinite(vCoast)  ? constrain(vCoast,  0.0f,  40.0f)    : 10.0f;
+    CHAIN_COAST_MM        = isfinite(vCoast)  ? constrain(vCoast,  0.0f,  40.0f)    : 2.0f;
     A_BRAKE_MMSS          = isfinite(vABrake) ? constrain(vABrake, 500.0f, 15000.0f): 3800.0f;
     A_ACCEL_MMSS          = isfinite(vAAccel) ? constrain(vAAccel, 500.0f, 15000.0f): 3500.0f;
     S_STOP_FINISH_MM      = isfinite(vSStop)  ? constrain(vSStop,  50.0f, 400.0f)   : 235.0f;
@@ -778,7 +779,7 @@ void resetConfigToDefault() {
   USE_HONEYCOMB_ROUTE_A = true;
   MAP_SCALE             = 0.85f;
   SENSOR_OFFSET_MM      = 170.0f;
-  CHAIN_COAST_MM        = 10.0f;
+  CHAIN_COAST_MM        = 2.0f;
   A_BRAKE_MMSS          = 3800.0f;
   A_ACCEL_MMSS          = 3500.0f;
   S_STOP_FINISH_MM      = 235.0f;
@@ -958,6 +959,7 @@ void startRun() {
   turnStartMM = 0.0f;
   turnStartHead = 0.0f;
   straightLockUntilMM = -1.0f;
+  straightLockHead    = 0.0f;
   postTurnT = 1.0f;
   missedRecovery = false;
   wasLostLine    = false;
@@ -1369,12 +1371,15 @@ void loop() {
     }
   }
 
-  // 4b. Khóa đi thẳng ngắn qua p_split
+  // 4b. Khóa đi thẳng qua ngã tư p_split (giữ hướng bằng encoder để không bị kéo sang nhánh chéo)
   if (ENABLE_ENCODERS && totalDistMM < straightLockUntilMM) {
     int baseSt = constrain((int)((vRefMMS / MAX_SPEED_MMS) * 255.0f), PWM_PIVOT_MIN, 185);
-    setMotorRaw(baseSt, baseSt);
+    int holdSt = (int)(HEAD_HOLD_KP * (headingDeg - straightLockHead));
+    int stL = constrain(baseSt + holdSt, -maxSpeed, maxSpeed);
+    int stR = constrain(baseSt - holdSt, -maxSpeed, maxSpeed);
+    setMotorRaw(stL, stR);
     maybePushLog(millis() - runStartMs, totalDistMM, sr, vRefMMS, velL_filt, velR_filt,
-                 headingDeg, baseSt, baseSt, (uint8_t)zType, jncIdx, invertedMode, turnStage, finishBraking);
+                 headingDeg, stL, stR, (uint8_t)zType, jncIdx, invertedMode, turnStage, finishBraking);
     return;
   }
 
@@ -1418,13 +1423,11 @@ void loop() {
         bool zoneOk = (zType == ev.zone)
                    || (jncIdx == 0 && zType == Z_LINE)
                    || (USE_HONEYCOMB_ROUTE_A && (
-                         (jncIdx == 9 && zType == Z_HONEYCOMB) ||
                          (jncIdx == 10 && zType == Z_CURVED_GAP) ||
                          (jncIdx == 12 && zType == Z_HUST) ||
                          (jncIdx == 13 && zType == Z_BUMP) ||
                          (jncIdx == 14 && zType == Z_HUST)))
                    || (!USE_HONEYCOMB_ROUTE_A && (
-                         (jncIdx == 5 && zType == Z_HONEYCOMB) ||
                          (jncIdx == 6 && zType == Z_CURVED_GAP) ||
                          (jncIdx == 8 && zType == Z_HUST) ||
                          (jncIdx == 9 && zType == Z_BUMP) ||
@@ -1466,7 +1469,10 @@ void loop() {
               missedRecovery = false;
               jncIdx++;
               if (ev.dir == 0) {
-                if (fabsf(sr.error) < 1.5f) straightLockUntilMM = totalDistMM + 45.0f * ms;
+                if (fabsf(sr.error) < 1.8f) {
+                  straightLockUntilMM = totalDistMM + 90.0f * ms;
+                  straightLockHead    = headingDeg;
+                }
               } else {
                 if ((ev.flags & TF_ABS_START) != 0) absRefHead = headingDeg;
                 forcedDir        = ev.dir;
