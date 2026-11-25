@@ -73,7 +73,7 @@ const float WHEEL_TRACK_MM    = 155.313f;
 const float TICKS_PER_REV     = 408.3f;
 const float MM_PER_TICK       = (3.1415926f * WHEEL_DIAMETER_MM) / TICKS_PER_REV;
 const float RAD_TO_DEG_F      = 57.2957795f;
-float       MAX_SPEED_MMS     = 1750.0f;  // PHẢI đo thực tế: v_thực / pwm * 255
+float       MAX_SPEED_MMS     = 1050.0f;  // đo thực tế từ log encoder: v_thực / pwm * 255
 const int   DEFAULT_PWM_PIVOT_MIN = 30;
 int         PWM_PIVOT_MIN         = DEFAULT_PWM_PIVOT_MIN;
 
@@ -81,12 +81,12 @@ int         PWM_PIVOT_MIN         = DEFAULT_PWM_PIVOT_MIN;
 const int LINE_PINS[8] = {36, 39, 34, 35, 32, 33, 25, 26};
 const float WEIGHTS[8] = {-3.5f, -2.5f, -1.5f, -0.5f, 0.5f, 1.5f, 2.5f, 3.5f};
 
-// TB6612FNG
-const int AIN1 = 22;
-const int AIN2 = 19;
+// TB6612FNG (đã đổi đúng cặp chân chiều AIN1/2 <-> BIN1/2 khớp PWMA trái & PWMB phải)
+const int AIN1 = 18;
+const int AIN2 = 21;
 const int PWMA = 14;
-const int BIN1 = 18;
-const int BIN2 = 21;
+const int BIN1 = 22;
+const int BIN2 = 19;
 const int PWMB = 27;
 const int STBY = 23;
 
@@ -554,7 +554,7 @@ void loadConfigFromNVS() {
     float vABrake = prefs.getFloat("aBrake", 3800.0f);
     float vAAccel = prefs.getFloat("aAccel", 3500.0f);
     float vSStop  = prefs.getFloat("sStop", 235.0f);
-    float vMaxV   = prefs.getFloat("maxV", 1750.0f);
+    float vMaxV   = prefs.getFloat("maxV", 1050.0f);
     float vVelKp  = prefs.getFloat("velKp", 0.05f);
     float vVelKi  = prefs.getFloat("velKi", 0.10f);
     float vCExp   = prefs.getFloat("cExp", 1.35f);
@@ -569,7 +569,7 @@ void loadConfigFromNVS() {
     A_BRAKE_MMSS          = isfinite(vABrake) ? constrain(vABrake, 500.0f, 15000.0f): 3800.0f;
     A_ACCEL_MMSS          = isfinite(vAAccel) ? constrain(vAAccel, 500.0f, 15000.0f): 3500.0f;
     S_STOP_FINISH_MM      = isfinite(vSStop)  ? constrain(vSStop,  50.0f, 400.0f)   : 235.0f;
-    MAX_SPEED_MMS         = isfinite(vMaxV)   ? constrain(vMaxV,   400.0f, 3500.0f) : 1750.0f;
+    MAX_SPEED_MMS         = isfinite(vMaxV)   ? constrain(vMaxV,   400.0f, 3500.0f) : 1050.0f;
     velKp                 = isfinite(vVelKp)  ? constrain(vVelKp,  0.0f, 2.0f)      : 0.05f;
     velKi                 = isfinite(vVelKi)  ? constrain(vVelKi,  0.0f, 5.0f)      : 0.10f;
     PWM_PIVOT_MIN         = constrain(vPivMin, 25, 110);
@@ -782,7 +782,7 @@ void resetConfigToDefault() {
   A_BRAKE_MMSS          = 3800.0f;
   A_ACCEL_MMSS          = 3500.0f;
   S_STOP_FINISH_MM      = 235.0f;
-  MAX_SPEED_MMS         = 1750.0f;
+  MAX_SPEED_MMS         = 1050.0f;
   velKp                 = 0.05f;
   velKi                 = 0.10f;
   PWM_PIVOT_MIN         = DEFAULT_PWM_PIVOT_MIN;
