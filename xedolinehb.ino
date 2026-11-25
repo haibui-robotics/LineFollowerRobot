@@ -14,6 +14,7 @@
 #include <soc/soc.h>
 #include <soc/gpio_reg.h>
 #include <math.h>
+#include <stdarg.h>
 #include <string.h>
 
 struct SensorResult {
@@ -418,6 +419,7 @@ float   forcedDeg     = 0.0f;
 float   forcedAdvMM   = 155.0f;
 bool    forcedPureEnc = false; // true: xoay thuần theo encoder, không dùng lineCaught/stage 25
 bool    forcedUseAbs  = false; // true: xoay tới góc tuyệt đối forcedTargetHead
+bool    hasAbsRef     = false; // true sau khi đã lấy mốc góc ngang absRefHead ở cửa vào Tổ ong
 float   absRefHead    = 0.0f;  // mốc góc tuyệt đối khi bắt đầu chuỗi Tổ ong hoặc vòm chữ H
 float   forcedTargetHead = 0.0f;
 float   advHoldHead      = 0.0f; // góc giữ thẳng trong turnStage == 1
@@ -443,6 +445,19 @@ float invSensorRange[8] = {1.0f / 3000.0f, 1.0f / 3000.0f, 1.0f / 3000.0f, 1.0f 
 
 char    cliBuf[48];
 uint8_t cliLen = 0;
+char    runTrace[256] = "";
+uint16_t runTraceLen = 0;
+
+void appendRunTrace(const char* fmt, ...) {
+  if (runTraceLen >= sizeof(runTrace) - 2) return;
+  va_list ap;
+  va_start(ap, fmt);
+  int n = vsnprintf(runTrace + runTraceLen, sizeof(runTrace) - runTraceLen, fmt, ap);
+  va_end(ap);
+  if (n > 0) {
+    runTraceLen = min((uint16_t)(sizeof(runTrace) - 1), (uint16_t)(runTraceLen + n));
+  }
+}
 
 volatile int32_t encCountL = 0, encCountR = 0;
 volatile uint8_t encStateL = 0, encStateR = 0;
@@ -597,6 +612,12 @@ void loadConfigFromNVS() {
         if (isfinite(pKff[i])) profiles[i].kff = constrain(pKff[i], 0.0f, 400.0f);
       }
     }
+    String lr = prefs.getString("lastRun", "");
+    if (lr.length() > 0) {
+      strncpy(runTrace, lr.c_str(), sizeof(runTrace) - 1);
+      runTrace[sizeof(runTrace) - 1] = '\0';
+      runTraceLen = strlen(runTrace);
+    }
     prefs.end();
   }
   updateInvSensorRange();
@@ -696,6 +717,7 @@ void resetWheelPI() {
 }
 
 void stopRobot() {
+  bool wasRunning     = isRunning;
   isRunning           = false;
   forcedDir           = 0;
   forcedPureEnc       = false;
@@ -710,6 +732,13 @@ void stopRobot() {
   setMotorRaw(0, 0);
   resetWheelPI();
   digitalWrite(LED_PIN, LOW);
+  if (wasRunning && totalDistMM > 100.0f) {
+    appendRunTrace("END@%.0f(j%u,h%.0f,e%.1f)", totalDistMM, jncIdx, headingDeg, lastError);
+    if (prefs.begin("hrc2026", false)) {
+      prefs.putString("lastRun", runTrace);
+      prefs.end();
+    }
+  }
 }
 
 void blinkLedBlocking(int times, int ms = 120) {
@@ -912,8 +941,9 @@ SensorResult readLineSensors(ZoneType zType, float dsAbsMM) {
   if (sumS >= 0.40f && res.activeCount > 0) {
     res.hasLine = true;
     float err = sumW / sumS;
-    if (sEff >= (4900.0f * ms + rShift) && sEff <= (5200.0f * ms + rShift) &&
-        clCnt == 1 && res.activeCount >= 4 && err < -0.3f) err = 0.0f;
+    // Vùng giao 2 đường chéo sau Tổ ong (p_split): không cho nhánh chéo bên trái kéo xe rẽ trái
+    if (sEff >= (4750.0f * ms + rShift) && sEff <= (5350.0f * ms + rShift) &&
+        res.activeCount >= 3 && err < -0.5f) err = 0.0f;
     if (sEff >= (8050.0f * ms + rShift) && sEff <= (8500.0f * ms + rShift) && res.activeCount >= 2 && err > 1.2f) err = 0.3f;
     if (sEff >= (11180.0f * ms + rShift) && sEff <= (11480.0f * ms + rShift) && res.activeCount >= 3 && err < -1.0f) err = -0.3f;
     uint8_t idxSU  = USE_HONEYCOMB_ROUTE_A ? 13 : 9;
@@ -950,10 +980,13 @@ void startRun() {
   forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 15.0f);
   forcedPureEnc = false;
   forcedUseAbs  = false;
+  hasAbsRef     = false;
   absRefHead    = 0.0f;
   forcedTargetHead = 0.0f;
   advHoldHead      = 0.0f;
   forcedChainExitS = -1.0f;
+  runTrace[0]   = '\0';
+  runTraceLen   = 0;
   turnStage = 0;
   turnStageT = 0.0f;
   turnStartMM = 0.0f;
@@ -993,7 +1026,7 @@ void startRun() {
 
 // ================= 14. SERIAL CLI NON-BLOCKING =================
 void printStatus() {
-  Serial.println("=== STATUS ===");
+  Serial.println("=== STATUS (V0.4) ===");
   Serial.printf("Mode=%d (%s) | Route=%c | MapScale=%.2f | Running=%d | Enc=%d\n",
                 currentMode + 1, profiles[currentMode].name,
                 USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', MAP_SCALE, isRunning, ENABLE_ENCODERS);
@@ -1005,6 +1038,7 @@ void printStatus() {
   Serial.print("IR Min/Max: ");
   for (int i = 0; i < 8; i++) Serial.printf("[%d:%d/%d] ", i, sensorMin[i], sensorMax[i]);
   Serial.println();
+  if (runTraceLen > 0) Serial.printf("LastRun: %s\n", runTrace);
 }
 
 void executeCLICommand(const char* rawCmd) {
@@ -1221,7 +1255,7 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENC_R_B), isrEncR, CHANGE);
   }
 
-  Serial.println("\n=== HRC 2026 ESP32 READY V0 (5kHz PWM, NVS) ===");
+  Serial.println("\n=== HRC 2026 ESP32 READY V0.4 (5kHz PWM, NVS) ===");
   loadConfigFromNVS();
   applyProfile(currentMode, false);
 }
@@ -1416,6 +1450,7 @@ void loop() {
           jncIdx++;
         }
       } else if (sSensor > sExp + sTol) {
+        appendRunTrace("M%u@%.0f ", jncIdx, totalDistMM);
         jncIdx++;
         missedRecovery = true;
         jncConfirmCnt = 0;
@@ -1442,7 +1477,7 @@ void loop() {
           uint8_t idxHIn       = USE_HONEYCOMB_ROUTE_A ? 14 : 10;
 
           if (ev.zone == Z_HONEYCOMB) trig = sr.tJunction || sr.leftBranch || sr.rightBranch;
-          else if (ev.dir == 0) trig = sr.leftBranch || sr.rightBranch || sr.tJunction || sr.ySplit;
+          else if (ev.dir == 0) trig = sr.leftBranch || sr.rightBranch || sr.tJunction || sr.ySplit || (sr.activeCount >= 3);
           else if (jncIdx == idxPsplitRet) trig = sr.leftEdge && (sr.tJunction || sr.leftBranch || sr.ySplit || sr.activeCount >= 3);
           else if (jncIdx == idxCorner100) trig = sr.leftBranch || sr.tJunction || (!sr.hasLine && sSensor >= (10175.0f * ms + rShift));
           else if (jncIdx == idxEndS) trig = (sSensor >= (12000.0f * ms + rShift)) && (sr.leftBranch || sr.tJunction);
@@ -1456,7 +1491,7 @@ void loop() {
           if (trig) {
             jncConfirmCnt++;
             uint8_t idxHBridgeEnd = USE_HONEYCOMB_ROUTE_A ? 17 : 13;
-            bool oneSampleOk = sr.tJunction || jncIdx == 0 ||
+            bool oneSampleOk = sr.tJunction || jncIdx == 0 || ev.dir == 0 ||
                                (jncIdx >= idxPsplitRet && jncIdx <= idxHBridgeEnd && jncIdx != idxHIn);
             if (jncConfirmCnt >= (oneSampleOk ? 1 : 2)) {
               jncConfirmCnt = 0;
@@ -1465,16 +1500,19 @@ void loop() {
               if (curIdx == idxPsplitRet) anchorS = 9420.0f * ms + rShift;
               else if (curIdx == idxEndS) anchorS = 12120.0f * ms + rShift;
               else if (curIdx == idxHIn)  anchorS = 13120.0f * ms + rShift;
+              appendRunTrace("J%u@%.0f(h%.0f) ", curIdx, totalDistMM, headingDeg);
               totalDistMM = max(0.0f, anchorS - SENSOR_OFFSET_MM);
               missedRecovery = false;
               jncIdx++;
               if (ev.dir == 0) {
-                if (fabsf(sr.error) < 1.8f) {
-                  straightLockUntilMM = totalDistMM + 90.0f * ms;
-                  straightLockHead    = headingDeg;
-                }
+                // Cụm giao kép 2 đường chéo (Lối tắt + Compa) rộng ~118mm (85%): khóa thẳng 155*ms theo hướng ngang chuẩn
+                straightLockUntilMM = totalDistMM + 155.0f * ms;
+                straightLockHead    = hasAbsRef ? absRefHead : headingDeg;
               } else {
-                if ((ev.flags & TF_ABS_START) != 0) absRefHead = headingDeg;
+                if ((ev.flags & TF_ABS_START) != 0) {
+                  absRefHead = headingDeg;
+                  hasAbsRef  = true;
+                }
                 forcedDir        = ev.dir;
                 forcedDeg        = ev.deg;
                 forcedPureEnc    = ((ev.flags & TF_PURE_ENC) != 0);
@@ -1523,7 +1561,8 @@ void loop() {
       float remaining = forcedUseAbs
                         ? ((float)forcedDir * (headingDeg - forcedTargetHead))
                         : (forcedDeg - rotated);
-      bool lineCaught = (!forcedPureEnc) && (rotated >= 0.6f * forcedDeg) && sr.hasLine &&
+      // Yêu cầu quay ít nhất 78% góc đặt trước khi cho lineCaught ngắt sớm (tránh thoát xiên góc ở cửa ra Tổ ong)
+      bool lineCaught = (!forcedPureEnc) && (rotated >= 0.78f * forcedDeg) && sr.hasLine &&
                         sr.activeCount >= 1 && sr.activeCount <= 3 && fabsf(sr.error) < 1.0f;
       if (lineCaught) {
         done = true;
@@ -1555,6 +1594,7 @@ void loop() {
       if (forcedChainExitS >= 0.0f) {
         totalDistMM = forcedChainExitS;
         forcedChainExitS = -1.0f;
+        appendRunTrace("X%u@%.0f(h%.0f) ", jncIdx, totalDistMM, headingDeg);
       }
       forcedDir     = 0;
       forcedPureEnc = false;
