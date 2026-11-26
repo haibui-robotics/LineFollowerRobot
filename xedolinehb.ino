@@ -181,12 +181,12 @@ const SpeedZone ZONES_ROUTE_A[] = {
   { 3350.0f,  3794.0f,  820.0f,  0.00f, Z_LINE},
   { 3794.0f,  4610.0f,  820.0f,  0.00f, Z_HONEYCOMB},
   { 4610.0f,  5050.0f,  760.0f,  0.00f, Z_LINE},
-  { 5050.0f,  5302.0f,  850.0f,  0.00f, Z_LINE},
-  { 5302.0f,  7850.0f,  650.0f,  0.00f, Z_GEAR},
-  { 7850.0f,  8020.0f,  650.0f,  0.00f, Z_GEAR},
-  { 8020.0f,  8200.0f,  650.0f, -1.74f, Z_GEAR},
-  { 8200.0f,  9220.0f,  950.0f, -1.74f, Z_CURVED_GAP},
-  { 9220.0f,  9680.0f,  950.0f,  0.00f, Z_SHORTCUT},
+  { 5050.0f,  5302.0f,  650.0f,  0.00f, Z_LINE},
+  { 5302.0f,  7200.0f,  650.0f,  0.00f, Z_GEAR},
+  { 7200.0f,  7360.0f,  650.0f,  0.00f, Z_GEAR},
+  { 7360.0f,  7520.0f,  650.0f, -1.74f, Z_GEAR},
+  { 7520.0f,  8550.0f,  950.0f, -1.74f, Z_CURVED_GAP},
+  { 8550.0f,  9680.0f,  950.0f,  0.00f, Z_SHORTCUT},
   { 9680.0f, 10050.0f, 1200.0f,  0.00f, Z_SHORTCUT},
   {10050.0f, 10260.0f,  800.0f,  0.00f, Z_SHORTCUT},
   {10260.0f, 10460.0f,  880.0f,  0.00f, Z_SHORTCUT},
@@ -215,10 +215,10 @@ const SpeedZone ZONES_ROUTE_B[] = {
   { 2700.0f,  3040.0f,  620.0f, -8.00f, Z_CURVE},
   { 3040.0f,  3794.0f,  800.0f,  0.00f, Z_LINE},
   { 3794.0f,  4841.0f,  800.0f,  0.00f, Z_HONEYCOMB},
-  { 4841.0f,  5533.0f,  800.0f,  0.00f, Z_LINE},
-  { 5533.0f,  8431.0f,  650.0f,  0.00f, Z_GEAR},
-  { 8431.0f,  9451.0f,  950.0f, -1.74f, Z_CURVED_GAP},
-  { 9451.0f, 11411.0f, 1050.0f,  0.00f, Z_SHORTCUT},
+  { 4841.0f,  5533.0f,  680.0f,  0.00f, Z_LINE},
+  { 5533.0f,  7751.0f,  650.0f,  0.00f, Z_GEAR},
+  { 7751.0f,  8781.0f,  950.0f, -1.74f, Z_CURVED_GAP},
+  { 8781.0f, 11411.0f, 1050.0f,  0.00f, Z_SHORTCUT},
   {11411.0f, 12411.0f,  820.0f,  0.00f, Z_BUMP},
   {12411.0f, 12911.0f,  860.0f,  0.00f, Z_HUST},
   {12911.0f, 13271.0f,  820.0f,  0.00f, Z_BUMP},
@@ -263,9 +263,9 @@ const TurnEvent PLAN_A[] = {
   {+1,  90.0f,  4602.0f,   80.0f, Z_HONEYCOMB,  57.7f,   0.0f, TF_ABS_HEAD},
   // Giao đường chéo sau Tổ ong -> đi thẳng (tol 110mm để không kích nhầm ngay cửa ra Tổ ong)
   { 0,   0.0f,  5054.5f,  110.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
-  // Lối tắt có thưởng (góc tách ~15-20°, đỉnh ~100-103°)
-  {-1,  20.0f,  9575.0f,  375.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
-  {-1, 100.0f, 10194.0f,  180.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  // Lối tắt có thưởng: idx 10 chỉ neo tọa độ tại ngã tư sau R574 (tracking gate bestCl=0 tự rẽ trái êm vào lối tắt), idx 11 rẽ góc nhọn 100°
+  { 0,   0.0f,  8650.0f,  450.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  {-1, 100.0f, 10194.0f,  220.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   // HUST: góc trên S/U (idx 12), góc dưới S/U (idx 13)
   {-1,  90.0f, 12550.0f,  550.0f, Z_BUMP,        0.0f,   0.0f, TF_NONE},
   {+1,  90.0f, 12620.0f,  260.0f, Z_HUST,        0.0f,   0.0f, TF_NONE},
@@ -285,8 +285,8 @@ const TurnEvent PLAN_B[] = {
   {-1,  60.0f,  4544.3f,  160.0f, Z_HONEYCOMB,   0.0f,   0.0f, TF_PURE_ENC},
   {+1,  90.0f,  4833.0f,  120.0f, Z_HONEYCOMB,   0.0f,   0.0f, TF_NONE},
   { 0,   0.0f,  5285.5f,  110.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
-  {-1,  20.0f,  9806.0f,  375.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
-  {-1, 100.0f, 10425.0f,  180.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  { 0,   0.0f,  8881.0f,  450.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  {-1, 100.0f, 10425.0f,  220.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   {-1,  90.0f, 12781.0f,  550.0f, Z_BUMP,        0.0f,   0.0f, TF_NONE},
   {+1,  90.0f, 12851.0f,  260.0f, Z_HUST,        0.0f,   0.0f, TF_NONE},
   {+1,  90.0f, 13731.0f, 1100.0f, Z_BUMP,        0.0f, -90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
@@ -905,9 +905,9 @@ SensorResult readLineSensors(ZoneType zType, float dsAbsMM) {
   if (ENABLE_TRACKING_GATE && clCnt >= 2) {
     int bestCl = 0;
     if ((zType == Z_LINE && sEff >= (4750.0f * ms + rShift) && sEff <= (5350.0f * ms + rShift)) ||
-        (zType == Z_GEAR && sEff < (7950.0f * ms + rShift))) {
+        (zType == Z_GEAR && sEff < (7300.0f * ms + rShift))) {
       bestCl = clCnt - 1;
-    } else if (zType == Z_CURVED_GAP || (zType == Z_GEAR && sEff >= (7950.0f * ms + rShift))) {
+    } else if (zType == Z_CURVED_GAP || (zType == Z_GEAR && sEff >= (7300.0f * ms + rShift))) {
       bestCl = 0;
     } else if (zType == Z_SHORTCUT && sEff < (10100.0f * ms + rShift)) {
       bestCl = 0;
@@ -946,7 +946,7 @@ SensorResult readLineSensors(ZoneType zType, float dsAbsMM) {
     // Vùng giao 2 đường chéo sau Tổ ong (p_split): không cho nhánh chéo bên trái kéo xe rẽ trái
     if (sEff >= (4750.0f * ms + rShift) && sEff <= (5350.0f * ms + rShift) &&
         res.activeCount >= 3 && err < -0.5f) err = 0.0f;
-    if (sEff >= (8050.0f * ms + rShift) && sEff <= (8500.0f * ms + rShift) && res.activeCount >= 2 && err > 1.2f) err = 0.3f;
+    if (sEff >= (7350.0f * ms + rShift) && sEff <= (7800.0f * ms + rShift) && res.activeCount >= 2 && err > 1.2f) err = 0.3f;
     if (sEff >= (11180.0f * ms + rShift) && sEff <= (11480.0f * ms + rShift) && res.activeCount >= 3 && err < -1.0f) err = -0.3f;
     uint8_t idxSU  = USE_HONEYCOMB_ROUTE_A ? 13 : 9;
     uint8_t idxHIn = USE_HONEYCOMB_ROUTE_A ? 14 : 10;
@@ -1029,7 +1029,7 @@ void startRun() {
 
 // ================= 14. SERIAL CLI NON-BLOCKING =================
 void printStatus() {
-  Serial.println("=== STATUS (V0.5) ===");
+  Serial.println("=== STATUS (V0.6) ===");
   Serial.printf("Mode=%d (%s) | Route=%c | MapScale=%.2f | Running=%d | Enc=%d\n",
                 currentMode + 1, profiles[currentMode].name,
                 USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', MAP_SCALE, isRunning, ENABLE_ENCODERS);
@@ -1258,7 +1258,7 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENC_R_B), isrEncR, CHANGE);
   }
 
-  Serial.println("\n=== HRC 2026 ESP32 READY V0.5 (5kHz PWM, NVS) ===");
+  Serial.println("\n=== HRC 2026 ESP32 READY V0.6 (5kHz PWM, NVS) ===");
   loadConfigFromNVS();
   applyProfile(currentMode, false);
 }
@@ -1490,9 +1490,9 @@ void loop() {
           uint8_t idxHIn       = USE_HONEYCOMB_ROUTE_A ? 14 : 10;
 
           if (ev.zone == Z_HONEYCOMB) trig = sr.tJunction || sr.leftBranch || sr.rightBranch;
-          else if (ev.dir == 0) trig = sr.leftBranch || sr.rightBranch || sr.tJunction || sr.ySplit || (sr.activeCount >= 3);
           else if (jncIdx == idxPsplitRet) trig = sr.leftEdge && (sr.tJunction || sr.leftBranch || sr.ySplit || sr.activeCount >= 3);
-          else if (jncIdx == idxCorner100) trig = sr.leftBranch || sr.tJunction || (!sr.hasLine && sSensor >= (10175.0f * ms + rShift));
+          else if (ev.dir == 0) trig = sr.leftBranch || sr.rightBranch || sr.tJunction || sr.ySplit || (sr.activeCount >= 3);
+          else if (jncIdx == idxCorner100) trig = sr.leftBranch || sr.tJunction || (sr.leftEdge && sr.activeCount >= 2) || (!sr.hasLine && sSensor >= (10080.0f * ms + rShift));
           else if (jncIdx == idxEndS) trig = (sSensor >= (12000.0f * ms + rShift)) && (sr.leftBranch || sr.tJunction);
           else if (jncIdx == idxSU) trig = (sSensor >= (12580.0f * ms + rShift)) && (sr.rightBranch || sr.tJunction || !sr.hasLine || (sr.rightEdge && sr.activeCount >= 3));
           else if (jncIdx == idxHIn) trig = (!sr.hasLine) && (sSensor >= (13080.0f * ms + rShift));
@@ -1510,7 +1510,8 @@ void loop() {
               jncConfirmCnt = 0;
               uint8_t curIdx = jncIdx;
               float anchorS = sExp;
-              if (curIdx == idxPsplitRet) anchorS = 9420.0f * ms + rShift;
+              // idxPsplitRet neo về 9250*ms để 803mm (ở 85%) tới đúng góc nhọn 100° idxCorner100 (10194*ms)
+              if (curIdx == idxPsplitRet) anchorS = 9250.0f * ms + rShift;
               else if (curIdx == idxEndS) anchorS = 12120.0f * ms + rShift;
               else if (curIdx == idxHIn)  anchorS = 13120.0f * ms + rShift;
               appendRunTrace("J%u@%.0f(h%.0f) ", curIdx, totalDistMM, headingDeg);
@@ -1518,9 +1519,12 @@ void loop() {
               missedRecovery = false;
               jncIdx++;
               if (ev.dir == 0) {
-                // Cụm giao kép 2 đường chéo (Lối tắt + Compa) rộng ~118mm (85%): khóa thẳng 155*ms theo hướng ngang chuẩn
-                straightLockUntilMM = totalDistMM + 155.0f * ms;
-                straightLockHead    = hasAbsRef ? absRefHead : headingDeg;
+                if (curIdx != idxPsplitRet) {
+                  // Cụm giao kép 2 đường chéo sau Tổ ong (p_split): khóa thẳng 155*ms theo hướng ngang chuẩn
+                  straightLockUntilMM = totalDistMM + 155.0f * ms;
+                  straightLockHead    = hasAbsRef ? absRefHead : headingDeg;
+                }
+                // Với idxPsplitRet: không khóa thẳng và không xoay dừng -> để tracking gate bestCl=0 tự rẽ trái êm vào lối tắt
               } else {
                 if ((ev.flags & TF_ABS_START) != 0) {
                   absRefHead = headingDeg;
@@ -1534,8 +1538,7 @@ void loop() {
                 advHoldHead      = headingDeg;
                 forcedChainExitS = -1.0f;
                 // Quy đổi quãng tiến trục bánh tới đúng tâm nút giao theo SENSOR_OFFSET_MM (170mm)
-                if (curIdx == idxPsplitRet) forcedAdvMM = max(75.0f, min(185.0f, SENSOR_OFFSET_MM + 10.0f));
-                else                        forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 15.0f);
+                forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 15.0f);
                 turnStage     = 1;
                 turnStageT    = 0.0f;
                 turnStartMM   = totalDistMM;
