@@ -185,8 +185,8 @@ const SpeedZone ZONES_ROUTE_A[] = {
   { 5302.0f,  7200.0f,  600.0f,  0.00f, Z_GEAR},
   { 7200.0f,  7360.0f,  650.0f,  0.00f, Z_GEAR},
   { 7360.0f,  7520.0f,  650.0f, -1.74f, Z_GEAR},
-  { 7520.0f,  8550.0f,  950.0f, -1.74f, Z_CURVED_GAP},
-  { 8550.0f,  9680.0f,  950.0f,  0.00f, Z_SHORTCUT},
+  { 7520.0f,  8850.0f,  760.0f, -1.74f, Z_CURVED_GAP},
+  { 8850.0f,  9680.0f,  950.0f,  0.00f, Z_SHORTCUT},
   { 9680.0f, 10050.0f, 1200.0f,  0.00f, Z_SHORTCUT},
   {10050.0f, 10260.0f,  800.0f,  0.00f, Z_SHORTCUT},
   {10260.0f, 10460.0f,  880.0f,  0.00f, Z_SHORTCUT},
@@ -201,7 +201,7 @@ const SpeedZone ZONES_ROUTE_A[] = {
   {13040.0f, 13820.0f,  780.0f,  0.00f, Z_HUST},
   {13820.0f, 14040.0f, 1000.0f,  0.00f, Z_LINE},
   {14040.0f, 15200.0f, 1400.0f,  0.00f, Z_LINE},
-  {15200.0f, 16000.0f, 1100.0f,  0.00f, Z_FINISH}
+  {15200.0f, 16000.0f,  750.0f,  0.00f, Z_FINISH}
 };
 const uint8_t NUM_ZONES_A = sizeof(ZONES_ROUTE_A) / sizeof(ZONES_ROUTE_A[0]);
 
@@ -216,15 +216,15 @@ const SpeedZone ZONES_ROUTE_B[] = {
   { 3040.0f,  3794.0f,  800.0f,  0.00f, Z_LINE},
   { 3794.0f,  4841.0f,  800.0f,  0.00f, Z_HONEYCOMB},
   { 4841.0f,  5533.0f,  680.0f,  0.00f, Z_LINE},
-  { 5533.0f,  7751.0f,  650.0f,  0.00f, Z_GEAR},
-  { 7751.0f,  8781.0f,  950.0f, -1.74f, Z_CURVED_GAP},
-  { 8781.0f, 11411.0f, 1050.0f,  0.00f, Z_SHORTCUT},
+  { 5533.0f,  7751.0f,  600.0f,  0.00f, Z_GEAR},
+  { 7751.0f,  9081.0f,  760.0f, -1.74f, Z_CURVED_GAP},
+  { 9081.0f, 11411.0f, 1050.0f,  0.00f, Z_SHORTCUT},
   {11411.0f, 12411.0f,  820.0f,  0.00f, Z_BUMP},
   {12411.0f, 12911.0f,  860.0f,  0.00f, Z_HUST},
   {12911.0f, 13271.0f,  820.0f,  0.00f, Z_BUMP},
   {13271.0f, 14051.0f,  780.0f,  0.00f, Z_HUST},
   {14051.0f, 15431.0f, 1400.0f,  0.00f, Z_LINE},
-  {15431.0f, 16231.0f, 1100.0f,  0.00f, Z_FINISH}
+  {15431.0f, 16231.0f,  750.0f,  0.00f, Z_FINISH}
 };
 const uint8_t NUM_ZONES_B = sizeof(ZONES_ROUTE_B) / sizeof(ZONES_ROUTE_B[0]);
 
@@ -263,8 +263,8 @@ const TurnEvent PLAN_A[] = {
   {+1,  90.0f,  4602.0f,   80.0f, Z_HONEYCOMB,  57.7f,   0.0f, TF_ABS_HEAD},
   // Giao đường chéo sau Tổ ong -> đi thẳng (tol 110mm để không kích nhầm ngay cửa ra Tổ ong)
   { 0,   0.0f,  5054.5f,  110.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
-  // Lối tắt có thưởng: idx 10 chỉ neo tọa độ tại ngã tư sau R574 (tracking gate bestCl=0 tự rẽ trái êm vào lối tắt), idx 11 rẽ góc nhọn 100°
-  { 0,   0.0f,  8650.0f,  450.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  // Lối tắt có thưởng: idx 10 chỉ neo tọa độ tại ngã tư sau R574 (cửa sổ rộng phủ đủ Mode 1..3), idx 11 rẽ góc nhọn 100°
+  { 0,   0.0f,  8950.0f,  550.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   {-1, 100.0f, 10194.0f,  220.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   // HUST: góc trên S/U (idx 12) & góc dưới S/U (idx 13) xoay thuần encoder góc tuyệt đối để tránh bắt nhầm vách trong chữ U (arccos(85/170)=60°)
   {-1,  90.0f, 12550.0f,  550.0f, Z_BUMP,        0.0f, +90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
@@ -285,7 +285,7 @@ const TurnEvent PLAN_B[] = {
   {-1,  60.0f,  4544.3f,  160.0f, Z_HONEYCOMB,   0.0f,   0.0f, TF_PURE_ENC},
   {+1,  90.0f,  4833.0f,  120.0f, Z_HONEYCOMB,   0.0f,   0.0f, TF_NONE},
   { 0,   0.0f,  5285.5f,  110.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
-  { 0,   0.0f,  8881.0f,  450.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
+  { 0,   0.0f,  9181.0f,  550.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   {-1, 100.0f, 10425.0f,  220.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   {-1,  90.0f, 12781.0f,  550.0f, Z_BUMP,        0.0f, +90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
   {+1,  90.0f, 12851.0f,  260.0f, Z_HUST,        0.0f,   0.0f, TF_PURE_ENC | TF_ABS_HEAD},
@@ -1029,7 +1029,7 @@ void startRun() {
 
 // ================= 14. SERIAL CLI NON-BLOCKING =================
 void printStatus() {
-  Serial.println("=== STATUS (V0.8) ===");
+  Serial.println("=== STATUS (V0.9) ===");
   Serial.printf("Mode=%d (%s) | Route=%c | MapScale=%.2f | Running=%d | Enc=%d\n",
                 currentMode + 1, profiles[currentMode].name,
                 USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', MAP_SCALE, isRunning, ENABLE_ENCODERS);
@@ -1258,7 +1258,7 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENC_R_B), isrEncR, CHANGE);
   }
 
-  Serial.println("\n=== HRC 2026 ESP32 READY V0.8 (5kHz PWM, NVS) ===");
+  Serial.println("\n=== HRC 2026 ESP32 READY V0.9 (5kHz PWM, NVS) ===");
   loadConfigFromNVS();
   applyProfile(currentMode, false);
 }
@@ -1594,7 +1594,7 @@ void loop() {
                         sr.activeCount >= 1 && sr.activeCount <= 3 && fabsf(sr.error) < 1.0f;
       if (lineCaught) {
         done = true;
-      } else if (forcedPureEnc && (remaining <= 2.0f || turnStageT > 1.6f)) {
+      } else if (forcedPureEnc && (remaining <= 4.0f || turnStageT > 1.6f)) {
         done = true;
       } else if (!forcedPureEnc && (remaining <= 0.0f || turnStageT > 1.6f)) {
         turnStage  = 25;
@@ -1783,20 +1783,28 @@ void loop() {
       pwmL = lastPwmL; pwmR = lastPwmR;
       setMotorRaw(pwmL, pwmR);
     } else if (inGap) {
-      // Đoạn đứt cong -> feedforward động học đầy đủ + giữ góc cung tròn theo encoder; đoạn đứt thẳng -> khóa hướng
-      int baseGMin = finishBraking ? 0 : PWM_PIVOT_MIN;
-      int baseG = constrain((int)((vRefMMS / MAX_SPEED_MMS) * 255.0f), baseGMin, 150);
-      float c = 0.0f;
-      if (gapZone && fabsf(mapKappa) > 0.05f) {
-        float cFF = FF_SIGN * (float)baseG * (mapKappa * (WHEEL_TRACK_MM * 0.0005f));
-        float expHeadDeg = lostHeadDeg + (-FF_SIGN) * (mapKappa * 0.001f * lostDist) * RAD_TO_DEG_F;
-        c = cFF + HEAD_HOLD_KP * (headingDeg - expHeadDeg);
+      // Đoạn đứt cong -> feedforward động học đầy đủ + giữ góc cung tròn; phanh đích -> hãm chủ động theo vận tốc thực
+      if (finishBraking && vCenter > vRefMMS + 180.0f) {
+        pwmL = -25; pwmR = -25;
+        setMotorRaw(pwmL, pwmR);
+      } else if (finishBraking && vCenter > vRefMMS + 50.0f) {
+        pwmL = 0; pwmR = 0;
+        setMotorRaw(0, 0);
       } else {
-        c = HEAD_HOLD_KP * (headingDeg - lostHeadDeg);
+        int baseGMin = finishBraking ? 0 : PWM_PIVOT_MIN;
+        int baseG = constrain((int)((vRefMMS / MAX_SPEED_MMS) * 255.0f), baseGMin, 150);
+        float c = 0.0f;
+        if (gapZone && fabsf(mapKappa) > 0.05f) {
+          float cFF = FF_SIGN * (float)baseG * (mapKappa * (WHEEL_TRACK_MM * 0.0005f));
+          float expHeadDeg = lostHeadDeg + (-FF_SIGN) * (mapKappa * 0.001f * lostDist) * RAD_TO_DEG_F;
+          c = cFF + HEAD_HOLD_KP * (headingDeg - expHeadDeg);
+        } else {
+          c = HEAD_HOLD_KP * (headingDeg - lostHeadDeg);
+        }
+        pwmL = constrain(baseG + (int)c, -maxSpeed, maxSpeed);
+        pwmR = constrain(baseG - (int)c, -maxSpeed, maxSpeed);
+        setMotorRaw(pwmL, pwmR);
       }
-      pwmL = constrain(baseG + (int)c, -maxSpeed, maxSpeed);
-      pwmR = constrain(baseG - (int)c, -maxSpeed, maxSpeed);
-      setMotorRaw(pwmL, pwmR);
     } else {
       // Tìm line: xoay tại chỗ về phía cuối cùng thấy line, không thấy thì quét ngược lại, rồi dừng
       if (lostSearchStartMs == 0) lostSearchStartMs = millis();
