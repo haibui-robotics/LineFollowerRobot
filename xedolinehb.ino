@@ -50,7 +50,7 @@ const bool ACTIVE_ON_BLACK = false;  // false: line đen ADC THẤP, nền trắ
 // Thông số cơ khí & vật lý
 float MAP_SCALE        = 0.85f;  // 0.85 cho sa bàn in 85% | 1.00 cho sa bàn thi đấu chuẩn (lệnh scale=)
 float SENSOR_OFFSET_MM = 170.0f;
-float CHAIN_COAST_MM   = 10.0f;  // trừ quãng phanh turnStage 15 trước khi xoay (lệnh coast=)
+float CHAIN_COAST_MM   = 13.0f;  // trừ quãng phanh turnStage 15 trước khi xoay (lệnh coast=)
 float A_BRAKE_MMSS     = 3800.0f;
 float A_ACCEL_MMSS     = 3500.0f;
 float S_STOP_FINISH_MM = 235.0f;
@@ -266,9 +266,9 @@ const TurnEvent PLAN_A[] = {
   // Lối tắt có thưởng: idx 10 chỉ neo tọa độ tại ngã tư sau R574 (tracking gate bestCl=0 tự rẽ trái êm vào lối tắt), idx 11 rẽ góc nhọn 100°
   { 0,   0.0f,  8650.0f,  450.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   {-1, 100.0f, 10194.0f,  220.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
-  // HUST: góc trên S/U (idx 12), góc dưới S/U (idx 13)
-  {-1,  90.0f, 12550.0f,  550.0f, Z_BUMP,        0.0f,   0.0f, TF_NONE},
-  {+1,  90.0f, 12620.0f,  260.0f, Z_HUST,        0.0f,   0.0f, TF_NONE},
+  // HUST: góc trên S/U (idx 12) & góc dưới S/U (idx 13) xoay thuần encoder góc tuyệt đối để tránh bắt nhầm vách trong chữ U (arccos(85/170)=60°)
+  {-1,  90.0f, 12550.0f,  550.0f, Z_BUMP,        0.0f, +90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
+  {+1,  90.0f, 12620.0f,  260.0f, Z_HUST,        0.0f,   0.0f, TF_PURE_ENC | TF_ABS_HEAD},
   // Vòm dưới chữ H (200-200-200-100mm; ở 85% còn 170-170-170-85mm): nối chuỗi góc tuyệt đối, idx 18 bắt line về đích
   {+1,  90.0f, 13500.0f, 1100.0f, Z_BUMP,        0.0f, -90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
   {-1,  90.0f, 13320.0f,   75.0f, Z_HUST,      200.0f,   0.0f, TF_PURE_ENC | TF_ABS_HEAD},
@@ -287,8 +287,8 @@ const TurnEvent PLAN_B[] = {
   { 0,   0.0f,  5285.5f,  110.0f, Z_LINE,        0.0f,   0.0f, TF_NONE},
   { 0,   0.0f,  8881.0f,  450.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
   {-1, 100.0f, 10425.0f,  220.0f, Z_SHORTCUT,    0.0f,   0.0f, TF_NONE},
-  {-1,  90.0f, 12781.0f,  550.0f, Z_BUMP,        0.0f,   0.0f, TF_NONE},
-  {+1,  90.0f, 12851.0f,  260.0f, Z_HUST,        0.0f,   0.0f, TF_NONE},
+  {-1,  90.0f, 12781.0f,  550.0f, Z_BUMP,        0.0f, +90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
+  {+1,  90.0f, 12851.0f,  260.0f, Z_HUST,        0.0f,   0.0f, TF_PURE_ENC | TF_ABS_HEAD},
   {+1,  90.0f, 13731.0f, 1100.0f, Z_BUMP,        0.0f, -90.0f, TF_PURE_ENC | TF_ABS_START | TF_ABS_HEAD},
   {-1,  90.0f, 13551.0f,   75.0f, Z_HUST,      200.0f,   0.0f, TF_PURE_ENC | TF_ABS_HEAD},
   {-1,  90.0f, 13751.0f,   75.0f, Z_HUST,      200.0f, +90.0f, TF_PURE_ENC | TF_ABS_HEAD},
@@ -567,7 +567,7 @@ void loadConfigFromNVS() {
     int   vPivMin = prefs.getInt("pivMin", DEFAULT_PWM_PIVOT_MIN);
     float vMapSc  = prefs.getFloat("mapSc", 0.85f);
     float vSensX  = prefs.getFloat("sensX", 170.0f);
-    float vCoast  = prefs.getFloat("coast", 10.0f);
+    float vCoast  = prefs.getFloat("coast", 13.0f);
     float vABrake = prefs.getFloat("aBrake", 3800.0f);
     float vAAccel = prefs.getFloat("aAccel", 3500.0f);
     float vSStop  = prefs.getFloat("sStop", 235.0f);
@@ -582,7 +582,7 @@ void loadConfigFromNVS() {
     USE_HONEYCOMB_ROUTE_A = prefs.getBool("routeA", true);
     MAP_SCALE             = isfinite(vMapSc)  ? constrain(vMapSc,  0.50f, 1.20f)    : 0.85f;
     SENSOR_OFFSET_MM      = isfinite(vSensX)  ? constrain(vSensX,  40.0f, 300.0f)   : 170.0f;
-    CHAIN_COAST_MM        = isfinite(vCoast)  ? constrain(vCoast,  0.0f,  40.0f)    : 10.0f;
+    CHAIN_COAST_MM        = isfinite(vCoast)  ? constrain(vCoast,  0.0f,  40.0f)    : 13.0f;
     A_BRAKE_MMSS          = isfinite(vABrake) ? constrain(vABrake, 500.0f, 15000.0f): 3800.0f;
     A_ACCEL_MMSS          = isfinite(vAAccel) ? constrain(vAAccel, 500.0f, 15000.0f): 3500.0f;
     S_STOP_FINISH_MM      = isfinite(vSStop)  ? constrain(vSStop,  50.0f, 400.0f)   : 235.0f;
@@ -810,7 +810,7 @@ void resetConfigToDefault() {
   USE_HONEYCOMB_ROUTE_A = true;
   MAP_SCALE             = 0.85f;
   SENSOR_OFFSET_MM      = 170.0f;
-  CHAIN_COAST_MM        = 10.0f;
+  CHAIN_COAST_MM        = 13.0f;
   A_BRAKE_MMSS          = 3800.0f;
   A_ACCEL_MMSS          = 3500.0f;
   S_STOP_FINISH_MM      = 235.0f;
@@ -1029,7 +1029,7 @@ void startRun() {
 
 // ================= 14. SERIAL CLI NON-BLOCKING =================
 void printStatus() {
-  Serial.println("=== STATUS (V0.7) ===");
+  Serial.println("=== STATUS (V0.8) ===");
   Serial.printf("Mode=%d (%s) | Route=%c | MapScale=%.2f | Running=%d | Enc=%d\n",
                 currentMode + 1, profiles[currentMode].name,
                 USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', MAP_SCALE, isRunning, ENABLE_ENCODERS);
@@ -1258,7 +1258,7 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENC_R_B), isrEncR, CHANGE);
   }
 
-  Serial.println("\n=== HRC 2026 ESP32 READY V0.7 (5kHz PWM, NVS) ===");
+  Serial.println("\n=== HRC 2026 ESP32 READY V0.8 (5kHz PWM, NVS) ===");
   loadConfigFromNVS();
   applyProfile(currentMode, false);
 }
