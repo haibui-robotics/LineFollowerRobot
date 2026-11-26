@@ -50,7 +50,7 @@ const bool ACTIVE_ON_BLACK = false;  // false: line đen ADC THẤP, nền trắ
 // Thông số cơ khí & vật lý
 float MAP_SCALE        = 0.85f;  // 0.85 cho sa bàn in 85% | 1.00 cho sa bàn thi đấu chuẩn (lệnh scale=)
 float SENSOR_OFFSET_MM = 170.0f;
-float CHAIN_COAST_MM   = 2.0f;   // trừ quán tính trượt cho các đoạn nối chuỗi Tổ ong / chữ H (lệnh coast=)
+float CHAIN_COAST_MM   = 10.0f;  // trừ quãng phanh turnStage 15 trước khi xoay (lệnh coast=)
 float A_BRAKE_MMSS     = 3800.0f;
 float A_ACCEL_MMSS     = 3500.0f;
 float S_STOP_FINISH_MM = 235.0f;
@@ -180,9 +180,9 @@ const SpeedZone ZONES_ROUTE_A[] = {
   { 3040.0f,  3350.0f,  750.0f,  0.00f, Z_LINE},
   { 3350.0f,  3794.0f,  820.0f,  0.00f, Z_LINE},
   { 3794.0f,  4610.0f,  820.0f,  0.00f, Z_HONEYCOMB},
-  { 4610.0f,  5050.0f,  760.0f,  0.00f, Z_LINE},
-  { 5050.0f,  5302.0f,  650.0f,  0.00f, Z_LINE},
-  { 5302.0f,  7200.0f,  650.0f,  0.00f, Z_GEAR},
+  { 4610.0f,  5050.0f,  650.0f,  0.00f, Z_LINE},
+  { 5050.0f,  5302.0f,  580.0f,  0.00f, Z_LINE},
+  { 5302.0f,  7200.0f,  600.0f,  0.00f, Z_GEAR},
   { 7200.0f,  7360.0f,  650.0f,  0.00f, Z_GEAR},
   { 7360.0f,  7520.0f,  650.0f, -1.74f, Z_GEAR},
   { 7520.0f,  8550.0f,  950.0f, -1.74f, Z_CURVED_GAP},
@@ -567,7 +567,7 @@ void loadConfigFromNVS() {
     int   vPivMin = prefs.getInt("pivMin", DEFAULT_PWM_PIVOT_MIN);
     float vMapSc  = prefs.getFloat("mapSc", 0.85f);
     float vSensX  = prefs.getFloat("sensX", 170.0f);
-    float vCoast  = prefs.getFloat("coast", 2.0f);
+    float vCoast  = prefs.getFloat("coast", 10.0f);
     float vABrake = prefs.getFloat("aBrake", 3800.0f);
     float vAAccel = prefs.getFloat("aAccel", 3500.0f);
     float vSStop  = prefs.getFloat("sStop", 235.0f);
@@ -582,7 +582,7 @@ void loadConfigFromNVS() {
     USE_HONEYCOMB_ROUTE_A = prefs.getBool("routeA", true);
     MAP_SCALE             = isfinite(vMapSc)  ? constrain(vMapSc,  0.50f, 1.20f)    : 0.85f;
     SENSOR_OFFSET_MM      = isfinite(vSensX)  ? constrain(vSensX,  40.0f, 300.0f)   : 170.0f;
-    CHAIN_COAST_MM        = isfinite(vCoast)  ? constrain(vCoast,  0.0f,  40.0f)    : 2.0f;
+    CHAIN_COAST_MM        = isfinite(vCoast)  ? constrain(vCoast,  0.0f,  40.0f)    : 10.0f;
     A_BRAKE_MMSS          = isfinite(vABrake) ? constrain(vABrake, 500.0f, 15000.0f): 3800.0f;
     A_ACCEL_MMSS          = isfinite(vAAccel) ? constrain(vAAccel, 500.0f, 15000.0f): 3500.0f;
     S_STOP_FINISH_MM      = isfinite(vSStop)  ? constrain(vSStop,  50.0f, 400.0f)   : 235.0f;
@@ -810,7 +810,7 @@ void resetConfigToDefault() {
   USE_HONEYCOMB_ROUTE_A = true;
   MAP_SCALE             = 0.85f;
   SENSOR_OFFSET_MM      = 170.0f;
-  CHAIN_COAST_MM        = 2.0f;
+  CHAIN_COAST_MM        = 10.0f;
   A_BRAKE_MMSS          = 3800.0f;
   A_ACCEL_MMSS          = 3500.0f;
   S_STOP_FINISH_MM      = 235.0f;
@@ -1029,7 +1029,7 @@ void startRun() {
 
 // ================= 14. SERIAL CLI NON-BLOCKING =================
 void printStatus() {
-  Serial.println("=== STATUS (V0.6) ===");
+  Serial.println("=== STATUS (V0.7) ===");
   Serial.printf("Mode=%d (%s) | Route=%c | MapScale=%.2f | Running=%d | Enc=%d\n",
                 currentMode + 1, profiles[currentMode].name,
                 USE_HONEYCOMB_ROUTE_A ? 'A' : 'B', MAP_SCALE, isRunning, ENABLE_ENCODERS);
@@ -1258,7 +1258,7 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ENC_R_B), isrEncR, CHANGE);
   }
 
-  Serial.println("\n=== HRC 2026 ESP32 READY V0.6 (5kHz PWM, NVS) ===");
+  Serial.println("\n=== HRC 2026 ESP32 READY V0.7 (5kHz PWM, NVS) ===");
   loadConfigFromNVS();
   applyProfile(currentMode, false);
 }
@@ -1537,8 +1537,8 @@ void loop() {
                 forcedTargetHead = absRefHead + ev.absDeg;
                 advHoldHead      = headingDeg;
                 forcedChainExitS = -1.0f;
-                // Quy đổi quãng tiến trục bánh tới đúng tâm nút giao theo SENSOR_OFFSET_MM (170mm)
-                forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 15.0f);
+                // Quy đổi quãng tiến trục bánh tới tâm nút giao theo SENSOR_OFFSET_MM (trừ ~20mm quãng phanh stage 15)
+                forcedAdvMM = max(75.0f, SENSOR_OFFSET_MM - 20.0f);
                 turnStage     = 1;
                 turnStageT    = 0.0f;
                 turnStartMM   = totalDistMM;
@@ -1553,32 +1553,44 @@ void loop() {
     }
   }
 
-  // 5b. THỰC THI RẼ (máy trạng thái: 1 tiến tới tâm nút -> 2 xoay tại chỗ -> 25 xoay chậm tìm line)
+  // 5b. THỰC THI RẼ (1 tiến tới tâm nút -> 15 phanh tắt đà tiến -> 2 xoay tại chỗ -> 25 xoay chậm tìm line)
   if (turnStage != 0) {
     turnStageT += dt;
-    // rotated > 0 khi xe đã quay đúng chiều rẽ (rẽ phải: heading giảm; rẽ trái: heading tăng)
-    float rotated = (float)forcedDir * (turnStartHead - headingDeg);
     int cmdL = 0, cmdR = 0;
     bool done = false;
 
     if (turnStage == 1) {
       float adv = totalDistMM - turnStartMM;
       if (adv >= forcedAdvMM || turnStageT > 1.2f) {
-        turnStage  = 2;
+        turnStage  = 15;
         turnStageT = 0.0f;
       } else {
-        int baseAdv = constrain((int)((vRefMMS / MAX_SPEED_MMS) * 255.0f), max(PWM_PIVOT_MIN, 55), 130);
+        int maxAdvPWM = forcedUseAbs ? 100 : 120;
+        int baseAdv = constrain((int)((vRefMMS / MAX_SPEED_MMS) * 255.0f), max(PWM_PIVOT_MIN, 55), maxAdvPWM);
         int hold = (int)(HEAD_HOLD_KP * (headingDeg - advHoldHead));  // trôi trái -> bù sang phải
         cmdL = baseAdv + hold;
         cmdR = baseAdv - hold;
       }
     }
+    if (turnStage == 15) {
+      // Phanh chủ động tắt đà tiến trước khi xoay tại chỗ (chống văng trục bánh tiến thêm ~60mm lọt vào lòng chữ U!)
+      if ((turnStageT >= 0.030f && fabsf(vCenter) < 45.0f) || turnStageT >= 0.085f) {
+        turnStage     = 2;
+        turnStageT    = 0.0f;
+        turnStartHead = headingDeg;
+      } else {
+        cmdL = 0;
+        cmdR = 0;
+      }
+    }
     if (turnStage == 2) {
+      // rotated > 0 khi xe đã quay đúng chiều rẽ (rẽ phải: heading giảm; rẽ trái: heading tăng)
+      float rotated = (float)forcedDir * (turnStartHead - headingDeg);
       float remaining = forcedUseAbs
                         ? ((float)forcedDir * (headingDeg - forcedTargetHead))
                         : (forcedDeg - rotated);
-      // Yêu cầu quay ít nhất 78% góc đặt trước khi cho lineCaught ngắt sớm (tránh thoát xiên góc ở cửa ra Tổ ong)
-      bool lineCaught = (!forcedPureEnc) && (rotated >= 0.78f * forcedDeg) && sr.hasLine &&
+      // Yêu cầu quay ít nhất 82% góc đặt trước khi cho lineCaught ngắt sớm (tránh bắt nhầm tường trong chữ U / cửa Tổ ong)
+      bool lineCaught = (!forcedPureEnc) && (rotated >= 0.82f * forcedDeg) && sr.hasLine &&
                         sr.activeCount >= 1 && sr.activeCount <= 3 && fabsf(sr.error) < 1.0f;
       if (lineCaught) {
         done = true;
